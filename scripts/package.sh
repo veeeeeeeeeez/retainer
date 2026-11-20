@@ -44,6 +44,20 @@ while IFS= read -r library; do
 done < <(otool -L "$app/Contents/MacOS/Retainer" | awk '$1 ~ /^@rpath\// {print $1}')
 [ "$missing" = 0 ] || exit 1
 
+# The binary records the SDK it was linked against, and macOS 26 goes by
+# that: an app that names an older SDK is run as one made for the older
+# system. A build can come out that way without any error (toolchain.sh has
+# the story), so look.
+sdk="$(otool -l "$app/Contents/MacOS/Retainer" | awk '/LC_BUILD_VERSION/ {found = 1} found && $1 == "sdk" {print $2; exit}')"
+case "${sdk%%.*}" in
+    "" | *[!0-9]*) sdk_major=0 ;;
+    *) sdk_major="${sdk%%.*}" ;;
+esac
+if [ "$sdk_major" -lt 26 ]; then
+    echo "error: the app says it was linked against the macOS ${sdk:-unknown} SDK; it has to be 26 or later." >&2
+    exit 1
+fi
+
 mkdir -p "$output"
 output="$(cd "$output" && pwd)"
 zip="$output/$name.zip"
