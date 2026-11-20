@@ -1,0 +1,46 @@
+name: Downloads page
+
+# Renders the downloads page from the published releases and deploys it to
+# GitHub Pages. Runs after every release (release.yml calls it) and when the
+# page itself changes.
+on:
+  push:
+    branches: [main]
+    paths:
+      - website/**
+      - .github/workflows/site.yml
+  workflow_call:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    # Deployments go out one after another, never two at once.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Render the page
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$RUNNER_TEMP/releases.json"
+          python3 website/build.py --releases "$RUNNER_TEMP/releases.json" --out _site
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: _site
+
+      - id: deployment
+        uses: actions/deploy-pages@v5

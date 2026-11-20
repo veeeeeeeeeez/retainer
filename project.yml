@@ -1,0 +1,59 @@
+# Generates Retainer.xcodeproj. Run `xcodegen generate`, then open the project
+# or build it with xcodebuild. The project file itself is not checked in.
+name: Retainer
+
+options:
+  minimumXcodeGenVersion: "2.40.0"
+  createIntermediateGroups: true
+  deploymentTarget:
+    # The full feature set needs macOS 26. The two macOS 26-only features are
+    # availability-gated, so the app also launches on macOS 15 with Parakeet
+    # only. Set this to "26.0" for a strict macOS 26+ build.
+    macOS: "15.0"
+
+configFiles:
+  Debug: Config/Signing.xcconfig
+  Release: Config/Signing.xcconfig
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    ARCHS: arm64
+    DEAD_CODE_STRIPPING: YES
+
+packages:
+  # All app code, and the FluidAudio dependency, live in this local package.
+  RetainerKit:
+    path: RetainerKit
+
+targets:
+  Retainer:
+    type: application
+    platform: macOS
+    sources:
+      - path: App/main.swift
+      - path: App/AppIcon.icns
+      - path: App/Info.plist
+        buildPhase: none
+    dependencies:
+      - package: RetainerKit
+        product: RetainerKit
+    settings:
+      base:
+        PRODUCT_NAME: Retainer
+        # The identifier is from the app's first name, Terminal, and is kept:
+        # macOS ties every permission the app has been given to it.
+        PRODUCT_BUNDLE_IDENTIFIER: blog.terminal.app
+        INFOPLIST_FILE: App/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        # Not sandboxed: a global event tap and ~/Library/Application Support/Terminal
+        # (the notes' folder, also still under the first name)
+        # both need the app to run outside the sandbox.
+        ENABLE_APP_SANDBOX: NO
+        ENABLE_HARDENED_RUNTIME: NO
+        COMBINE_HIDPI_IMAGES: YES
+    scheme:
+      testTargets:
+        - package: RetainerKit/RetainerKitTests
