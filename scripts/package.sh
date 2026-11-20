@@ -72,23 +72,26 @@ trap 'rm -rf "$work"' EXIT
 # it with something other than the Finder.
 ditto -c -k --keepParent --norsrc --noextattr "$app" "$zip"
 
-mkdir "$work/image"
-ditto --norsrc --noextattr "$app" "$work/image/Retainer.app"
-ln -s /Applications "$work/image/Applications"
-# hdiutil now and then finds the folder "busy" on a build machine; it is
-# worth a second and a third try before giving up.
-attempt=1
-until hdiutil create -quiet -volname "Retainer" -srcfolder "$work/image" -fs HFS+ -format UDZO -ov "$image"; do
-    if [ "$attempt" -ge 3 ]; then
-        echo "error: could not create $image." >&2
-        exit 1
-    fi
-    attempt=$((attempt + 1))
-    sleep 2
-done
+# The disk image opens on a window with the app, the Applications folder and
+# an arrow from the one to the other. dmgbuild makes it (scripts/dmg/build.py
+# has the layout, and checks the result). dmgbuild and the two packages it
+# needs go into a folder under build/, at the exact versions and hashes in
+# scripts/dmg/requirements.txt; nothing is installed on the Mac itself. The
+# Python is the one that comes with Xcode and its Command Line Tools.
+tools="build/dmg-tools"
+if ! cmp -s scripts/dmg/requirements.txt "$tools/requirements.txt"; then
+    rm -rf "$tools"
+    /usr/bin/python3 -m venv "$tools"
+    "$tools/bin/pip" install --quiet --disable-pip-version-check --require-hashes --only-binary :all: \
+        -r scripts/dmg/requirements.txt
+    cp scripts/dmg/requirements.txt "$tools/requirements.txt"
+fi
+ditto --norsrc --noextattr "$app" "$work/Retainer.app"
+"$tools/bin/python" scripts/dmg/build.py "$work/Retainer.app" "$image"
 
 # Check what will be downloaded, not what was built: unpack the zip and make
-# sure the signature survived the trip.
+# sure the signature survived the trip. (build.py has done the same for the
+# app inside the disk image.)
 ditto -x -k "$zip" "$work/unpacked"
 codesign --verify --deep --strict "$work/unpacked/Retainer.app"
 hdiutil verify -quiet "$image"
