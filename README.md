@@ -253,12 +253,27 @@ command = "./scripts/site.sh"
 icon = "globe"
 ```
 
+**The disk image's window.** The disk image opens on the usual invitation:
+the app on the left, the Applications folder on the right, an arrow from the
+one to the other, and under them the line about the first launch that the
+page has. `scripts/dmg/build.py` lays it out with
+[dmgbuild](https://dmgbuild.readthedocs.io), which writes the layout into the
+image without going through the Finder, and then mounts the result to check
+it. The picture behind the icons, `scripts/dmg/background.tiff`, is drawn by
+`swift scripts/make-dmg-background.swift`; sizes and positions are in both
+files and have to be changed in both. It is white with grey on it because
+the Finder draws a window that has a picture as a light one whatever the Mac
+is set to, with the icons' names in black. `package.sh` installs dmgbuild
+into `build/dmg-tools`, at the versions and hashes pinned in
+`scripts/dmg/requirements.txt`, the first time it runs, so packaging needs
+the network once.
+
 **What whoever downloads it will meet.** There is no Apple Developer account
 behind this app, so nothing here is notarised:
 
 - *The first time it is opened, macOS refuses* ("Apple could not verify…").
   System Settings ▸ Privacy & Security ▸ Open Anyway lets it through, once.
-  The page's last line says so.
+  The page's last line and the disk image's window both say so.
 - *Releases built on GitHub are signed ad hoc*, there being no certificate
   there to sign with. To macOS each release is therefore a different app:
   after replacing one with the next, the four permissions have to be given
