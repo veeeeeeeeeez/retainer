@@ -25,6 +25,11 @@ cp App/Info.plist "$app/Contents/Info.plist"
 cp App/AppIcon.icns "$app/Contents/Resources/AppIcon.icns"
 printf 'APPL????' > "$app/Contents/PkgInfo"
 
+# A published release carries its own build number (see scripts/package.sh).
+if [ -n "${RETAINER_BUILD_NUMBER:-}" ]; then
+    /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $RETAINER_BUILD_NUMBER" "$app/Contents/Info.plist"
+fi
+
 executable="$app/Contents/MacOS/Retainer"
 
 # Swift back-deployment libraries, if the binary uses any, travel inside the
