@@ -58,5 +58,15 @@
     If macOS won’t open it: System Settings › Privacy &amp; Security › Open Anyway
   </footer>
 </main>
+<script>
+  // Each date is written as it is in UTC. Show it as it is where the reader is.
+  for (const time of document.querySelectorAll("time")) {
+    const moment = new Date(time.dateTime);
+    if (!isNaN(moment)) {
+      const two = (number) => String(number).padStart(2, "0");
+      time.textContent = moment.getFullYear() + "-" + two(moment.getMonth() + 1) + "-" + two(moment.getDate());
+    }
+  }
+</script>
 </body>
 </html>

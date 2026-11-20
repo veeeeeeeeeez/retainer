@@ -15,7 +15,7 @@ import html
 import json
 import re
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
 
@@ -38,7 +38,7 @@ def published_rows(path):
             when = release.get("published_at") or release.get("created_at") or ""
             rows.append((when, release.get("name") or release["tag_name"], links))
     rows.sort(key=lambda row: row[0], reverse=True)
-    return [(name, links, when[:10]) for when, name, links in rows]
+    return [(name, links, when) for when, name, links in rows]
 
 
 def local_rows(folder):
@@ -55,7 +55,7 @@ def local_rows(folder):
         (
             "Retainer %s (%s)" % key,
             entry["links"],
-            datetime.fromtimestamp(entry["modified"]).strftime("%Y-%m-%d"),
+            datetime.fromtimestamp(entry["modified"], timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         )
         for key, entry in newest_first
     ]
@@ -65,18 +65,21 @@ def render(rows):
     if not rows:
         return '    <tr><td class="none">No releases yet</td></tr>'
     lines = []
-    for name, links, date in rows:
+    for name, links, when in rows:
         # The disk image is the download; the zip is offered beside it. With
         # only one of the two, that one is the download.
         kinds = [kind for kind in ("dmg", "zip") if kind in links]
         anchors = '<a href="%s">Download</a>' % html.escape(links[kinds[0]])
         for kind in kinds[1:]:
             anchors += '<a class="mirror" href="%s">(%s)</a>' % (html.escape(links[kind]), kind)
+        # `when` is a moment in UTC. The page shows its date, and a script in
+        # index.html turns that into the date where the reader is.
+        date = '<time datetime="%s">%s</time>' % (html.escape(when), html.escape(when[:10])) if when else ""
         lines += [
             "    <tr>",
             '      <td class="version">%s</td>' % html.escape(name),
             '      <td class="get">%s</td>' % anchors,
-            '      <td class="date">%s</td>' % html.escape(date),
+            '      <td class="date">%s</td>' % date,
             "    </tr>",
         ]
     return "\n".join(lines)
