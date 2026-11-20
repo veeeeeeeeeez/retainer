@@ -26,7 +26,7 @@ PACKAGE = re.compile(r"^Retainer-(?P<version>.+)-(?P<build>[^-]+)\.(?P<kind>dmg|
 
 def published_rows(path):
     rows = []
-    for release in json.loads(Path(path).read_text()):
+    for release in json.loads(Path(path).read_text(encoding="utf-8")):
         if release.get("draft"):
             continue
         links = {}
@@ -89,7 +89,7 @@ def main():
     parser.add_argument("--local", type=Path)
     arguments = parser.parse_args()
 
-    template = TEMPLATE.read_text()
+    template = TEMPLATE.read_text(encoding="utf-8")
     if MARKER not in template:
         sys.exit("error: %s has no %s line to put the releases in." % (TEMPLATE, MARKER))
 
@@ -100,7 +100,7 @@ def main():
         rows += published_rows(arguments.releases)
 
     arguments.out.mkdir(parents=True, exist_ok=True)
-    (arguments.out / "index.html").write_text(template.replace(MARKER, render(rows)))
+    (arguments.out / "index.html").write_text(template.replace(MARKER, render(rows)), encoding="utf-8")
 
     if arguments.local and arguments.local.is_dir():
         link = arguments.out / "downloads"
