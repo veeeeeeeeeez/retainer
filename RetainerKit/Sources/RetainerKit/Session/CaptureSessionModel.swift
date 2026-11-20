@@ -46,8 +46,10 @@ final class CaptureSessionModel {
 
     /// A message shown with the editor (microphone unavailable, and the like).
     var notice: String?
-    /// Quiet metadata under the editor: engine and what tidy did.
-    var statusLine = ""
+    /// Where the card will go besides today's board, when a canvas is in
+    /// front ("to Thesis / Outline"): said in the editor, since the overlay
+    /// hides the window. `nil` on a day's board.
+    var destination: String?
     var editorText = ""
     var initialText = ""
     var editorHeight: CGFloat = 0
@@ -58,8 +60,23 @@ final class CaptureSessionModel {
     /// being held for: how to say the talking is done.
     var speakingHint: String?
 
+    /// What the microphone is doing for the editor, once the note is there:
+    /// nothing, listening for more to add to it, or working out what was
+    /// just said.
+    enum AddedVoice: Equatable {
+        case off
+        case listening
+        case finishing
+    }
+    var addedVoice: AddedVoice = .off
+    /// How loud it is while more is being said, for the waveform in the editor.
+    var voiceMeter: LevelMeter?
+
     @ObservationIgnored var onSave: () -> Void = {}
     @ObservationIgnored var onDiscard: () -> Void = {}
+    /// The microphone button in the editor: start adding to the note by
+    /// voice, or stop.
+    @ObservationIgnored var onToggleVoice: () -> Void = {}
     /// Ends the talking, for a capture that no key is being held for.
     @ObservationIgnored var onFinishSpeaking: (() -> Void)?
 

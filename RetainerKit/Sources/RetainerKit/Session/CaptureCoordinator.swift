@@ -73,6 +73,9 @@ public final class CaptureCoordinator {
     @MainActor
     private final class Session {
         let model: CaptureSessionModel
+        /// What the editor held when the microphone was switched on again
+        /// to add to it.
+        var textBeforeAddedVoice: String?
         let display: DisplayInfo
         let source: SourceContext
         let previousApp: NSRunningApplication?
@@ -298,6 +301,9 @@ public final class CaptureCoordinator {
         model.onDiscard = { [weak self, weak session] in
             if let session { self?.finish(session) }
         }
+        model.onToggleVoice = { [weak self, weak session] in
+            if let session { self?.toggleAddedVoice(session) }
+        }
         self.session = session
         closingToken = nil
         startWatchdog()
@@ -440,7 +446,18 @@ public final class CaptureCoordinator {
     /// or a capture is on screen.
     @discardableResult
     func startDictation(onInterim: @escaping @MainActor (String) -> Void) -> Bool {
-        guard !isDictating, session == nil, let engine = engines.readyEngine else { return false }
+        guard session == nil else { return false }
+        return beginDictation(onInterim: onInterim)
+    }
+
+    /// The microphone and an engine session of their own, apart from any
+    /// capture's: for the input box, and for adding to a capture's note once
+    /// its own recording is over. `onFailure` is told if the microphone
+    /// cannot be started.
+    private func beginDictation(
+        onInterim: @escaping @MainActor (String) -> Void, onFailure: (@MainActor () -> Void)? = nil
+    ) -> Bool {
+        guard !isDictating, let engine = engines.readyEngine else { return false }
         let state = Dictation(recorder: environment.makeRecorder())
         dictation = state
         isDictating = true
@@ -453,6 +470,7 @@ public final class CaptureCoordinator {
             } catch {
                 self.environment.showNotice("microphone unavailable: \(error.localizedDescription)")
                 self.cancelDictation()
+                onFailure?()
             }
         }
         state.transcription = Task {
@@ -497,6 +515,84 @@ public final class CaptureCoordinator {
         state.transcription?.cancel()
         let recorder = state.recorder
         Task { await recorder.stop() }
+    }
+
+    // MARK: More voice for a capture's note
+
+    /// The microphone button in a capture's editor. Pressed once, the
+    /// microphone comes back on and what is said is written after what the
+    /// note already says, as it is heard. Pressed again, it goes off and the
+    /// words stay, tidied if tidy is on.
+    private func toggleAddedVoice(_ session: Session) {
+        guard isCurrent(session), session.editorShown, session.model.phase == .editing else { return }
+        let model = session.model
+        switch model.addedVoice {
+        case .finishing:
+            return
+        case .listening:
+            finishAddedVoice(session)
+        case .off:
+            let before = model.editorText
+            let started = beginDictation(
+                onInterim: { [weak self, weak session] heard in
+                    guard let self, let session, self.isCurrent(session), model.addedVoice == .listening else { return }
+                    model.editorText = Self.adding(heard, to: before)
+                },
+                onFailure: { [weak self, weak session] in
+                    guard let self, let session, self.isCurrent(session) else { return }
+                    model.editorText = before
+                    model.addedVoice = .off
+                    model.voiceMeter = nil
+                    model.notice = "The microphone could not be switched on. Type the rest instead."
+                })
+            guard started else {
+                model.notice = "The speech engine is not ready. Type the rest instead."
+                return
+            }
+            session.textBeforeAddedVoice = before
+            model.discardArmed = false
+            model.voiceMeter = dictationMeter
+            model.addedVoice = .listening
+        }
+    }
+
+    /// Stops listening and leaves what was said in the note, then does
+    /// whatever was waiting on it (a save asked for while still listening).
+    private func finishAddedVoice(_ session: Session, then: (@MainActor () -> Void)? = nil) {
+        let model = session.model
+        guard model.addedVoice == .listening else { return }
+        let before = session.textBeforeAddedVoice ?? model.editorText
+        model.addedVoice = .finishing
+        Task {
+            let said = await self.stopDictation() ?? ""
+            guard self.isCurrent(session) else { return }
+            model.editorText = Self.adding(said, to: before)
+            session.textBeforeAddedVoice = nil
+            model.voiceMeter = nil
+            model.addedVoice = .off
+            model.editor.focus(atEnd: true)
+            then?()
+        }
+    }
+
+    /// Stops listening and puts the note back as it was before.
+    private func dropAddedVoice(_ session: Session) {
+        let model = session.model
+        guard model.addedVoice != .off else { return }
+        cancelDictation()
+        if let before = session.textBeforeAddedVoice { model.editorText = before }
+        session.textBeforeAddedVoice = nil
+        model.voiceMeter = nil
+        model.addedVoice = .off
+    }
+
+    /// A note with more said at the end of it: after what is there, with a
+    /// space between unless that already ends in one or in a new line.
+    nonisolated static func adding(_ words: String, to text: String) -> String {
+        let words = words.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !words.isEmpty else { return text }
+        guard let last = text.last else { return words }
+        return last.isWhitespace ? text + words : text + " " + words
     }
 
     // MARK: Pasted and dropped
@@ -553,6 +649,9 @@ public final class CaptureCoordinator {
         }
         model.onDiscard = { [weak self, weak session] in
             if let session { self?.finish(session) }
+        }
+        model.onToggleVoice = { [weak self, weak session] in
+            if let session { self?.toggleAddedVoice(session) }
         }
         model.onFinishSpeaking = { [weak self, weak session] in
             if let session { self?.endHold(session) }
@@ -680,9 +779,6 @@ public final class CaptureCoordinator {
         guard isCurrent(session), !session.editorShown else { return }
         session.rawTranscript = raw
 
-        if session.tidyEnabled && !raw.isEmpty {
-            model.processingLabel = "tidying"
-        }
         let result = await tidy.run(raw: raw, enabled: session.tidyEnabled)
         guard isCurrent(session), !session.editorShown else { return }
         session.tidyResult = result
@@ -698,7 +794,7 @@ public final class CaptureCoordinator {
         let model = session.model
         model.initialText = text
         model.editorText = text
-        model.statusLine = statusLine(for: session)
+        model.destination = destinationNote
         if let reason = session.microphoneError {
             model.notice = session.voiceNotice ?? "Microphone unavailable. \(reason) Type your note instead."
         }
@@ -729,32 +825,21 @@ public final class CaptureCoordinator {
         return "to \(project) / \(target.name)"
     }
 
-    private func statusLine(for session: Session) -> String {
-        let said = spokenStatus(for: session)
-        guard let destination = destinationNote else { return said }
-        return said.isEmpty ? destination : "\(said)  ·  \(destination)"
-    }
-
-    private func spokenStatus(for session: Session) -> String {
-        guard session.microphoneError == nil else { return "" }
-        let engine = session.engineID.rawValue
-        guard let result = session.tidyResult else { return engine }
-        let tidy: String =
-            switch result.outcome {
-            case .off: "tidy off"
-            case .applied: "tidied"
-            case .empty: "nothing heard"
-            case .unavailable: "tidy unavailable" + (result.detail.map { ": \($0)" } ?? "")
-            case .timedOut: "tidy timed out, raw transcript"
-            case .rejected: "tidy rejected" + (result.detail.map { " (\($0))" } ?? "") + ", raw transcript"
-            case .failed: "tidy failed, raw transcript"
-            }
-        return "\(engine)  ·  \(tidy)"
-    }
-
     private func save(_ session: Session) {
         guard isCurrent(session), session.editorShown, let image = session.image else { return }
         let model = session.model
+        // Still listening for more: what was said goes in first.
+        switch model.addedVoice {
+        case .listening:
+            finishAddedVoice(session) { [weak self, weak session] in
+                if let session { self?.save(session) }
+            }
+            return
+        case .finishing:
+            return
+        case .off:
+            break
+        }
 
         let id = UUID()
         let pixelSize = PixelSize(width: image.cgImage.width, height: image.cgImage.height)
@@ -830,6 +915,11 @@ public final class CaptureCoordinator {
             }
             // Mid-composition, Escape belongs to the input method.
             if model.editor.hasMarkedText { return false }
+            // While more is being said, Escape takes that back and no more.
+            if model.addedVoice != .off {
+                dropAddedVoice(session)
+                return true
+            }
             if model.hasEdits && !model.discardArmed {
                 model.discardArmed = true
                 return true
@@ -875,6 +965,10 @@ public final class CaptureCoordinator {
         session.stage?.cancel()
         let recorder = session.recorder
         Task { await recorder.stop() }
+        if session.model.addedVoice != .off {
+            cancelDictation()
+            session.model.addedVoice = .off
+        }
 
         // Capturing may resume as soon as the trigger is pressed afresh.
         tap?.sessionEnded()

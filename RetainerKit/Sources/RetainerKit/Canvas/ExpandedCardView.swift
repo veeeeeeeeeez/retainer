@@ -224,11 +224,15 @@ struct ExpandedCardView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// When, by which engine, what tidy did, and how big the screenshot is.
+    /// When, and how big the picture is. Which engine heard the note and
+    /// what the tidy pass did are saved with it and shown nowhere: those
+    /// belong to the settings.
     private var facts: String {
-        var parts = [SourceLabel.timestamp.string(from: note.timestamp), note.engine]
-        if let outcome = note.tidyOutcome, outcome != .off { parts.append("tidy: \(outcome.rawValue)") }
-        parts.append("\(note.imagePixelSize.width) × \(note.imagePixelSize.height) px")
+        var parts = [SourceLabel.timestamp.string(from: note.timestamp)]
+        // A card of words has no picture to give the size of.
+        if !note.isTextOnly {
+            parts.append("\(note.imagePixelSize.width) × \(note.imagePixelSize.height) px")
+        }
         if note.isArchived { parts.append("archived") }
         return parts.joined(separator: "  ·  ")
     }

@@ -320,7 +320,7 @@ struct PermissionsChecklist: View {
                     }
                 }
 
-                Text("speech model (\(app.engines.selected.rawValue)): \(app.engines.selectedState.summary)")
+                Text("speech model: \(app.engines.selectedState.summary)")
             }
             .font(Theme.mono(11))
             .foregroundStyle(Theme.textMuted)

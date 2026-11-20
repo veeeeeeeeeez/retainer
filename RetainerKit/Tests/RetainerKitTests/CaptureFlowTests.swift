@@ -327,7 +327,8 @@ struct CaptureFlowTests {
         h.coordinator.handle([.holdEnded])
         #expect(await h.waitUntil { model.phase == .editing })
         #expect(model.editorText == "I think this is worth reading twice.")
-        #expect(model.statusLine == "parakeet-tdt-v2  ·  tidied")
+        // On a day's board the editor has nothing to say about where the card is going.
+        #expect(model.destination == nil)
         #expect(h.overlay.keyboardTaken >= 1)
         #expect(h.recorders.first?.stopped == true)
         #expect(await h.engine.samplesReceived == 4800)
@@ -369,7 +370,6 @@ struct CaptureFlowTests {
         await h.releaseAndWaitForEditor()
         let model = try #require(h.model)
         #expect(model.editorText == "um I think this is uh worth reading twice")
-        #expect(model.statusLine == "parakeet-tdt-v2  ·  tidy off")
 
         model.onSave()
         let note = try #require(h.store.notes.first)
@@ -379,7 +379,7 @@ struct CaptureFlowTests {
         #expect(note.tidyOutcome == .off)
     }
 
-    @Test("When the model is unavailable the editor gets the raw transcript and says why")
+    @Test("When the model is unavailable the editor gets the raw transcript, and the note records that")
     func tidyUnavailable() async throws {
         let h = Harness(tidier: nil)
         defer { h.cleanUp() }
@@ -389,7 +389,14 @@ struct CaptureFlowTests {
         await h.releaseAndWaitForEditor()
         let model = try #require(h.model)
         #expect(model.editorText == "um I think this is uh worth reading twice")
-        #expect(model.statusLine == "parakeet-tdt-v2  ·  tidy unavailable: requires macOS 26")
+        // Nothing about it is said in the editor: that belongs to the settings.
+        #expect(model.notice == nil && model.destination == nil)
+
+        model.onSave()
+        let note = try #require(h.store.notes.first)
+        // Tidy was switched on and could not run: both are kept with the note.
+        #expect(note.tidy && note.tidyOutcome == .unavailable)
+        #expect(note.note == note.rawTranscript)
     }
 
     @Test("A rewrite from the model is rejected in favour of the raw transcript")
@@ -402,7 +409,80 @@ struct CaptureFlowTests {
         await h.releaseAndWaitForEditor()
         let model = try #require(h.model)
         #expect(model.editorText == "um I think this is uh worth reading twice")
-        #expect(model.statusLine.contains("tidy rejected"))
+
+        model.onSave()
+        let note = try #require(h.store.notes.first)
+        #expect(note.tidy && note.tidyOutcome == .rejected)
+        #expect(note.note == note.rawTranscript)
+    }
+
+    @Test("The microphone in the editor adds what is said after what the note already says")
+    func addingVoice() async throws {
+        let h = Harness(tidier: StubTidier(output: { _ in "I think this is worth reading twice." }))
+        defer { h.cleanUp() }
+        await h.makeReady()
+        await h.dragSelection()
+        await h.releaseAndWaitForEditor()
+        let model = try #require(h.model)
+        #expect(model.editorText == "I think this is worth reading twice." && model.addedVoice == .off)
+        #expect(h.recorders.count == 1)
+
+        // Something is typed, then the microphone is switched back on.
+        model.editorText = "I think this is worth reading twice.\n\nAlso:"
+        model.onToggleVoice()
+        #expect(model.addedVoice == .listening)
+        #expect(h.coordinator.isDictating)
+        // A microphone of its own, and what is heard so far goes after what is there.
+        #expect(await h.waitUntil { h.recorders.count == 2 && h.recorders[1].started })
+        #expect(await h.waitUntil { model.editorText == "I think this is worth reading twice.\n\nAlso: words so far" })
+
+        // Switched off: the words stay, tidied like the rest, and the editor is as it was otherwise.
+        model.onToggleVoice()
+        #expect(await h.waitUntil { model.addedVoice == .off })
+        #expect(model.editorText == "I think this is worth reading twice.\n\nAlso: I think this is worth reading twice.")
+        #expect(h.recorders[1].stopped && !h.coordinator.isDictating)
+        #expect(model.phase == .editing && model.hasEdits)
+
+        // It is saved with the note.
+        model.onSave()
+        let note = try #require(h.store.notes.first)
+        #expect(note.note == "I think this is worth reading twice.\n\nAlso: I think this is worth reading twice.")
+    }
+
+    @Test("Escape while more is being said takes that back and leaves the note; saving while listening keeps it")
+    func addingVoiceEscapeAndSave() async throws {
+        let h = Harness(tidier: StubTidier(output: { _ in "I think this is worth reading twice." }))
+        defer { h.cleanUp() }
+        await h.makeReady()
+        await h.dragSelection()
+        await h.releaseAndWaitForEditor()
+        let model = try #require(h.model)
+        #expect(model.editorText == "I think this is worth reading twice.")
+
+        // Escape: the listening stops, the note is as it was, and it is not discarded.
+        model.onToggleVoice()
+        #expect(await h.waitUntil { model.editorText == "I think this is worth reading twice. words so far" })
+        #expect(h.coordinator.handleKey(keyCode: KeyCode.escape, command: false))
+        #expect(model.addedVoice == .off && model.editorText == "I think this is worth reading twice.")
+        #expect(model.phase == .editing && !model.discardArmed && !h.coordinator.isDictating)
+        #expect(h.store.notes.isEmpty)
+
+        // Command-Return while listening: what was said goes in, then the note is saved.
+        model.onToggleVoice()
+        #expect(await h.waitUntil { model.editorText == "I think this is worth reading twice. words so far" })
+        #expect(h.coordinator.handleKey(keyCode: KeyCode.returnKey, command: true))
+        #expect(await h.waitUntil { h.store.notes.count == 1 })
+        #expect(h.store.notes.first?.note == "I think this is worth reading twice. I think this is worth reading twice.")
+        #expect(!h.coordinator.isDictating)
+    }
+
+    @Test("Words added by voice go after the note with one space, or straight after a new line")
+    func joiningAddedWords() {
+        #expect(CaptureCoordinator.adding("more", to: "") == "more")
+        #expect(CaptureCoordinator.adding("more", to: "A note.") == "A note. more")
+        #expect(CaptureCoordinator.adding("  more \n", to: "A note.\n\n") == "A note.\n\nmore")
+        #expect(CaptureCoordinator.adding("more", to: "A note. ") == "A note. more")
+        #expect(CaptureCoordinator.adding("   ", to: "A note.") == "A note.")
     }
 
     @Test("Saying nothing still opens an empty editor to type in")
@@ -922,7 +1002,7 @@ struct CaptureFlowTests {
         await h.dragSelection()
         await h.releaseAndWaitForEditor()
         // The editor says where it is going, since the overlay hides the window.
-        #expect(h.model?.statusLine == "parakeet-tdt-v2  ·  tidied  ·  to Thesis / Outline")
+        #expect(h.model?.destination == "to Thesis / Outline")
         #expect(h.coordinator.handleKey(keyCode: KeyCode.returnKey, command: true))
 
         let note = try #require(h.store.notes.first)

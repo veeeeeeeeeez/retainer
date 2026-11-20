@@ -240,15 +240,8 @@ public final class AppModel {
     public var captureStatus: String {
         switch coordinator.availability {
         case .ready:
-            let tidy: String
-            if !settings.tidyEnabled {
-                tidy = "tidy off"
-            } else if case .unavailable(let reason) = tidyAvailability {
-                tidy = "tidy unavailable (\(reason))"
-            } else {
-                tidy = "tidy on"
-            }
-            return "ready  ·  \(engines.selected.rawValue)  ·  \(tidy)"
+            // Which engine and whether tidy is on are in the settings.
+            return "ready"
         case .blocked(let reason):
             return "capture off: \(reason)"
         }

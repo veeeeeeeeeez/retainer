@@ -31,7 +31,7 @@ This version was written and checked on a Mac running **macOS 15.7.7 with no
 Xcode installed**. That shaped what could be verified:
 
 - The code compiles against the macOS 26.5 SDK with Swift 6.3 in Swift 6
-  language mode, and 239 unit tests pass.
+  language mode, and 242 unit tests pass.
 - The app launches, renders, downloads the Parakeet model and transcribes
   recorded speech correctly on that Mac.
 - The **gesture has had one hands-on session** (macOS 15.7, a 3440 × 1440
@@ -261,8 +261,17 @@ Two things to know:
    you think about this?" and the pill beneath it. Keep holding and talk.
    Pauses are fine: nothing stops on silence. Your words appear under the
    pill as you speak.
-4. Release Left Option. The pill reads "transcribing", then "tidying", and is
-   replaced by an editor holding your note with the cursor at the end.
+4. Release Left Option. The pill reads "transcribing" and is replaced by an
+   editor holding your note with the cursor at the end. The editor is the
+   same pane of frosted glass as the input box in the main window, here
+   frosting the screen behind it: the note, and under it the two keys and
+   the save button (and, with a canvas in front, where the card is going).
+   It says nothing about the speech engine or the tidy pass. Beside the save
+   button is a **microphone**: click it to say more. What you say is written
+   after what the note already says, as you say it; click the square (the
+   same button) to stop, and the words stay, tidied if tidy is on. Escape
+   while it is listening takes back what was just said and leaves the note;
+   ⌘↩ while it is listening keeps it and saves.
 5. Edit, then **⌘↩** or the save button. The card closes, focus returns to
    the app you were in, and the note appears on today's board, whichever
    board the window happens to be showing.
@@ -513,7 +522,8 @@ board remembers its own pan and zoom. ⌘9 (View ▸ Recenter) brings the cards
 back into view.
 
 **Cards.** On a board a card is kept small: the screenshot, the first
-three lines of the note, where it came from and when. If the capture has a
+three lines of the note, where it came from and the time. Only the time: the
+day is the board's own, and the full date is on the card once it is opened. If the capture has a
 link back to its source, it sits directly under the screenshot as one quiet
 line (**↗** and the address, or a document mark and the path); click it to go
 there. Pointing at a card dims its screenshot a touch and brightens that line.
@@ -576,11 +586,18 @@ right-hand end speaks only when capture is off, to say why (a permission is
 missing, the speech model is still downloading). When capture is ready it is
 empty.
 
-**Menu bar.** Open the window, choose the engine, toggle tidy, see each
-permission's status (clicking one requests it or opens its pane), quit. Closing
+**Menu bar.** Open the window, see whether capture is on and each
+permission's status (clicking one requests it or opens its pane), open the
+settings, quit. Closing
 the window does not quit the app; capture keeps working from the menu bar.
 
-The same controls are also in the **Capture** menu of the app's own menu bar.
+**The speech engine and the tidy pass are named in one place only: the
+settings.** They are chosen there, and their state is shown there. Not on
+cards, not in the capture editor, not in the menus. A note still records
+which engine heard it and what the tidy pass did (`engine`, `tidyOutcome` in
+the index); nothing shows them.
+
+The same entries are also in the **Capture** menu of the app's own menu bar.
 That is deliberate: when the menu bar is full, macOS hides the newest items
 behind the display notch, and on the Mac this was built on the item did land
 there. If you cannot see it, use the Capture menu, or make room in the menu bar.
@@ -646,7 +663,7 @@ would give.
 ## Transcription
 
 Two on-device engines sit behind one protocol (`TranscriptionEngine`). Switch
-between them in the menu bar; the choice persists. Each note records which
+between them in the settings; the choice persists. Each note records which
 engine produced it.
 
 **Parakeet TDT v2** (default), through
@@ -671,7 +688,7 @@ Removing them is the tidy pass's job.
 
 ## Tidy
 
-On by default; toggle in the menu bar. After transcription, one pass with
+On by default; toggle in the settings. After transcription, one pass with
 Apple's on-device Foundation Models framework (macOS 26, Apple Intelligence
 switched on). No cloud model is involved under any circumstances.
 
@@ -776,8 +793,8 @@ it was made on.
 `timestamp` is when the note was saved, and so which day's board it is on:
 there is nothing else that files a note anywhere. `position` is where its
 card sits on that day's board (or, while archived, in that day's archive).
-`imagePixelSize`, `imageScale` and `tidyOutcome` let a card be laid out
-before its image has loaded and say what tidy did.
+`imagePixelSize` and `imageScale` let a card be laid out before its image
+has loaded. `tidyOutcome` records what the tidy pass did; nothing shows it.
 
 Earlier shapes of the index are read as they are and rewritten in this one:
 version 1 (notes only) and version 2 (which for a short while filed notes
@@ -926,7 +943,7 @@ screen can be caught before its screenshots have loaded.
 | Compiles in Swift 6 mode against the macOS 26.5 SDK, at deployment targets 15.0 and 26.0, with no warnings | `scripts/build.sh` with Swift 6.3.3 |
 | The pass-through rules: Option-click, Option with keys, Option with other modifiers, Right Option, hold without drag; lost key events; long drags | 44 tests on the gesture state machine |
 | Handlers the system calls on background threads (permission prompts, menu bar icon drawing) do not trap | 2 tests that call them off the main thread |
-| The capture flow from drag to saved note; Escape in every phase; discard confirmation; tidy on, off, unavailable and rejected; no microphone; early release; failed screenshot; saving to today's board whichever board is on screen, with and without a source link; a capture and a dropped picture landing on the canvas in front as well as on today; something pasted shown in the middle with the microphone on, Return (not a held Return repeating) or a click on the pill ending the talking, Escape dropping it, several taking their turns, a drag not starting a capture over one, no speech engine, a dropped picture saved where it was dropped; words from the input box saved as a note with nothing spoken, attached things saved with what was written onto the canvas in front, and dictation handing over what is heard and the tidied whole | 32 tests that drive `CaptureCoordinator` with stand-ins for screen, microphone, engine and overlay |
+| The capture flow from drag to saved note; Escape in every phase; discard confirmation; tidy on, off, unavailable and rejected; no microphone; early release; failed screenshot; saving to today's board whichever board is on screen, with and without a source link; a capture and a dropped picture landing on the canvas in front as well as on today; something pasted shown in the middle with the microphone on, Return (not a held Return repeating) or a click on the pill ending the talking, Escape dropping it, several taking their turns, a drag not starting a capture over one, no speech engine, a dropped picture saved where it was dropped; words from the input box saved as a note with nothing spoken, attached things saved with what was written onto the canvas in front, and dictation handing over what is heard and the tidied whole ; the microphone in the editor adding what is said after the note, Escape taking it back, saving while it listens | 35 tests that drive `CaptureCoordinator` with stand-ins for screen, microphone, engine and overlay |
 | Pasted and dropped things: what counts as a link; a copied link, a copied picture with the page it came from, copied picture files and files that are not pictures, plain text left alone, all read from a private clipboard; pictures keeping their density and brought down to size; a link's card from its address being words on the panel and nothing else; things waiting in the input box, taken out again, sent on with Return; typed words saved as a note, alone or with what is waiting, and a typed link going on to be spoken about | 11 tests |
 | Tidy guard and the 3-second limit | 21 tests |
 | Storage: round trip, edits and moves persisting across a reopen, deletion, unreadable index, PNG round trip; notes by day, week and month; archive, restore and seen; sample notes never written to disk; indexes in the older shapes, with overlapping cards moved apart in the oldest and left alone in version 3; projects and canvases surviving a relaunch; one note with a place on its day and another on each canvas; archive, delete and rename rules; a made-up note's place on a canvas never written | 20 tests |
@@ -997,6 +1014,10 @@ Roughly in the order worth trying.
     in the middle of a board with nothing in view, in the real window (their
     fade and their turns were measured moment by moment in a hidden one with
     `--motion`, which is not the same as watching them while scrolling);
+    the microphone in the capture editor on a real microphone (the path
+    is tested with a stand-in; nothing has listened through it), and the
+    frosted glass of that editor, which blurs the screen behind the overlay
+    and so is in no render;
     clicking **recenter** under them, the round-arrow button in the status
     bar and ⌘9, and how the board looks as it glides back; the light on the
     window's edges while the board is actually being scrolled (stills show
@@ -1151,8 +1172,11 @@ Roughly in the order worth trying.
   `#0A0A0A`. On request the palette was changed to the warm near-blacks of a
   reference screenshot, with a sand accent in place of amber, and a
   light-mode switch was added in a settings panel opened from a gear at the
-  bottom left. The panel also repeats the engine and tidy switches, which
-  the brief puts in the menu bar only. The capture overlay stays dark in
+  bottom left. The engine and tidy switches, which the brief puts in the
+  menu bar, were first repeated in the panel and then, on request ("only
+  place parakeet and tidy should show up are in the settings"), left there
+  alone: the menus, the capture editor and the opened card no longer name
+  either. The capture overlay stays dark in
   both modes.
 - **System typefaces only.** Notes were first set in Charter; on request
   everything is now SF Pro, the system face, and nothing else.
@@ -1160,7 +1184,7 @@ Roughly in the order worth trying.
   drag over the canvas window captures what is behind it.
 - **A notice appears at the bottom of the screen** if you Option-drag while
   capture is off, saying why.
-- **The menu bar item's controls are repeated in a Capture menu** in the app's
+- **The menu bar item's entries are repeated in a Capture menu** in the app's
   menu bar, so they stay reachable when the item is hidden behind the notch.
 - **The selection is clear glass, not an accent border.** The brief asked for
   a crisp 1 px accent border and no gradients or shadows; this was changed on

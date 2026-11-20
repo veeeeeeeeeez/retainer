@@ -112,7 +112,7 @@ struct OverlayRootView: View {
                 case .speaking, .processing:
                     speakingContent
                 case .editing, .closing:
-                    EditorCard(model: model)
+                    EditorCard(model: model, staticLevel: staticLevel)
                 case .selecting, .capturing:
                     EmptyView()
                 }
@@ -189,14 +189,18 @@ struct OverlayRootView: View {
     }
 }
 
-/// The note editor shown once recording has stopped: the text, and beneath it
-/// in the same panel a quiet row with the two keys and the save button.
+/// The note editor shown once recording has stopped: the same pane of
+/// frosted glass as the input box in the main window, with the text in it
+/// and under the text a quiet row with the two keys, a microphone for
+/// saying more, and the save button.
 private struct EditorCard: View {
 
     @Bindable var model: CaptureSessionModel
+    /// A fixed waveform level for static renders; `nil` follows the microphone.
+    var staticLevel: Float?
 
     private static let minimumEditorHeight: CGFloat = 72
-    private static let footerHeight: CGFloat = 44
+    private static let cornerRadius: CGFloat = 14
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.m) {
@@ -207,7 +211,7 @@ private struct EditorCard: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 0) {
                 MarkdownEditor(
                     text: $model.editorText,
                     fontSize: 16,
@@ -215,34 +219,33 @@ private struct EditorCard: View {
                     onHeightChange: { model.editorHeight = $0 }
                 )
                 .frame(height: min(max(model.editorHeight, Self.minimumEditorHeight), model.editorMaxHeight))
-                .padding(14)
+                .padding(.horizontal, 16)
+                .padding(.top, 14)
+                .padding(.bottom, 8)
                 .overlay(alignment: .topLeading) {
                     if model.editorText.isEmpty {
                         Text("Type a note")
                             .font(Theme.noteFont(size: 16))
                             .foregroundStyle(Theme.textFaint)
-                            .padding(14)
+                            .padding(.horizontal, 16)
+                            .padding(.top, 14)
                             .allowsHitTesting(false)
                     }
                 }
 
-                Rectangle().fill(Theme.hairline).frame(height: Theme.hairlineWidth)
-
                 footer
                     .padding(.horizontal, 14)
-                    .frame(height: Self.footerHeight)
+                    .padding(.bottom, 12)
             }
-            .background(Theme.panel, in: RoundedRectangle(cornerRadius: Theme.radius))
-            .overlay {
-                RoundedRectangle(cornerRadius: Theme.radius)
-                    .strokeBorder(Theme.hairlineStrong, lineWidth: Theme.hairlineWidth)
-            }
+            // The screen behind the overlay, frosted: there is nothing of
+            // the overlay's own behind the box to frost.
+            .floatingGlass(cornerRadius: Self.cornerRadius, tint: 0.78, behindWindow: true)
         }
     }
 
     @ViewBuilder
     private var footer: some View {
-        HStack(spacing: Theme.Space.m) {
+        HStack(spacing: 10) {
             if model.discardArmed {
                 Text("esc again to discard  ·  any other key keeps editing")
                     .font(Theme.mono(11))
@@ -254,21 +257,64 @@ private struct EditorCard: View {
                 Button("discard") { model.onDiscard() }
                     .buttonStyle(FlatButtonStyle())
             } else {
-                Text("⌘↩ save  ·  esc discard")
-                    .font(Theme.mono(11))
-                    .foregroundStyle(Theme.textMuted)
-                    .fixedSize()
+                if model.addedVoice == .off {
+                    Text("⌘↩ save  ·  esc discard")
+                        .font(Theme.mono(10))
+                        .foregroundStyle(Theme.textFaint)
+                        .fixedSize()
+                } else {
+                    // More is being said: the same waveform as while the
+                    // capture was first spoken about.
+                    RecordingPill(
+                        meter: model.voiceMeter ?? model.meter,
+                        mode: model.addedVoice == .finishing ? .status("transcribing") : .recording,
+                        fixedLevel: staticLevel)
+                }
                 Spacer(minLength: Theme.Space.m)
-                if !model.statusLine.isEmpty {
-                    Text(model.statusLine)
-                        .font(Theme.mono(11))
+                // Only when the card is going somewhere the overlay hides.
+                if let destination = model.destination {
+                    Text(destination)
+                        .font(Theme.mono(10))
                         .foregroundStyle(Theme.textMuted)
                         .lineLimit(1)
-                        .truncationMode(.tail)
+                        .truncationMode(.middle)
                 }
-                Button("save") { model.onSave() }
-                    .buttonStyle(FlatButtonStyle(prominent: true))
+                // The same buttons as the input box in the main window has:
+                // a microphone, to say more, and the arrow that sends it.
+                voiceButton
+                Button {
+                    model.onSave()
+                } label: {
+                    Image(systemName: "arrow.up")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Theme.background)
+                        .frame(width: 26, height: 26)
+                        .background(Theme.text, in: RoundedRectangle(cornerRadius: 7))
+                }
+                .buttonStyle(.plain)
+                .help("Save")
+                .accessibilityLabel("Save")
             }
         }
+        .frame(height: RecordingPill.height)
+    }
+
+    /// Switches the microphone back on to add to the note, and off again.
+    private var voiceButton: some View {
+        let listening = model.addedVoice == .listening
+        return Button {
+            model.onToggleVoice()
+        } label: {
+            Image(systemName: listening ? "stop.fill" : "mic")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(listening ? Theme.background : Theme.textSecondary)
+                .frame(width: 26, height: 26)
+                .background(listening ? Theme.text : Theme.panelRaised, in: RoundedRectangle(cornerRadius: 7))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(model.addedVoice == .finishing)
+        .help(listening ? "Stop" : "Say more")
+        .accessibilityLabel(listening ? "Stop adding by voice" : "Add more by voice")
     }
 }

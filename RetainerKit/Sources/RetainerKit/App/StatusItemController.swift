@@ -41,28 +41,6 @@ final class CaptureMenu: NSObject, NSMenuDelegate {
         menu.addItem(info(app.captureStatus))
         menu.addItem(.separator())
 
-        menu.addItem(info("Engine"))
-        for engine in EngineID.allCases {
-            let state = app.engines.state(of: engine)
-            let entry = item("\(engine.displayName)  (\(state.summary))", action: #selector(selectEngine(_:)))
-            entry.representedObject = engine.rawValue
-            entry.state = app.engines.selected == engine ? .on : .off
-            entry.isEnabled = app.engines.isSelectable(engine)
-            entry.indentationLevel = 1
-            menu.addItem(entry)
-        }
-        menu.addItem(.separator())
-
-        let tidy = item("Tidy Transcripts", action: #selector(toggleTidy))
-        tidy.state = app.settings.tidyEnabled ? .on : .off
-        menu.addItem(tidy)
-        if case .unavailable(let reason) = app.tidyAvailability {
-            let note = info("Unavailable: \(reason)")
-            note.indentationLevel = 1
-            menu.addItem(note)
-        }
-        menu.addItem(.separator())
-
         let missing = app.permissions.missing
         menu.addItem(
             info(missing.isEmpty ? "Permissions: all granted" : "Permissions: \(missing.count) missing"))
@@ -74,6 +52,9 @@ final class CaptureMenu: NSObject, NSMenuDelegate {
             entry.indentationLevel = 1
             menu.addItem(entry)
         }
+
+        menu.addItem(.separator())
+        menu.addItem(item("Settings…", action: #selector(openSettings)))
 
         if standalone {
             menu.addItem(.separator())
@@ -102,13 +83,11 @@ final class CaptureMenu: NSObject, NSMenuDelegate {
         openWindow()
     }
 
-    @objc private func selectEngine(_ sender: NSMenuItem) {
-        guard let raw = sender.representedObject as? String, let engine = EngineID(rawValue: raw) else { return }
-        app.engines.select(engine)
-    }
-
-    @objc private func toggleTidy() {
-        app.settings.tidyEnabled.toggle()
+    /// The speech engine and the tidy pass are chosen in the settings and
+    /// nowhere else; the menu only leads there.
+    @objc private func openSettings() {
+        openWindow()
+        app.showsSettings = true
     }
 
     @objc private func openPermission(_ sender: NSMenuItem) {

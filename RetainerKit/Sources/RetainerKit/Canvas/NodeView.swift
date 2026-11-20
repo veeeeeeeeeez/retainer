@@ -212,7 +212,8 @@ struct NodeView: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
             Spacer(minLength: 8 * scale)
-            Text(SourceLabel.timestamp.string(from: note.timestamp))
+            // The time alone: the day is the board's, or under the card when it is opened.
+            Text(SourceLabel.time.string(from: note.timestamp))
                 .foregroundStyle(Theme.textFaint)
                 .lineLimit(1)
                 .fixedSize()
@@ -306,10 +307,19 @@ enum SourceLabel {
         }
     }
 
+    /// The day and the time, for an opened card.
     static let timestamp: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd HH:mm"
+        return formatter
+    }()
+
+    /// The time alone, for a card on a board.
+    static let time: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "HH:mm"
         return formatter
     }()
 }

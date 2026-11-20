@@ -506,7 +506,7 @@ private enum Snapshots {
                 model.image = captured
                 model.lifted = true
                 model.phase = .processing
-                model.processingLabel = "tidying"
+                model.processingLabel = "transcribing"
             }, size: screen, to: directory.appendingPathComponent("09-processing.png"))
         // A pasted link in the same place: its card, the pill, and what ends the talking.
         if let pastedLink {
@@ -527,8 +527,27 @@ private enum Snapshots {
                 model.phase = .editing
                 model.initialText = note
                 model.editorText = note
-                model.statusLine = "parakeet-tdt-v2  ·  tidied"
             }, size: screen, to: directory.appendingPathComponent("10-editing.png"))
+        // With a canvas in front, the editor says where the card is going.
+        try render(
+            overlay { model in
+                model.image = captured
+                model.lifted = true
+                model.phase = .editing
+                model.initialText = note
+                model.editorText = note
+                model.destination = "to Thesis / Outline"
+            }, size: screen, to: directory.appendingPathComponent("10b-editing-for-a-canvas.png"))
+        // The microphone switched back on from the editor, to add to the note.
+        try render(
+            overlay { model in
+                model.image = captured
+                model.lifted = true
+                model.phase = .editing
+                model.initialText = note
+                model.editorText = note + " And the follow-up had"
+                model.addedVoice = .listening
+            }, size: screen, to: directory.appendingPathComponent("10c-editing-adding-voice.png"))
         try render(
             overlay { model in
                 model.image = captured
