@@ -10,7 +10,10 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 port="${PORT:-3000}"
-site="$PWD/website/_site"
+# The folder's real path. Conductor can reach one workspace by two names (one
+# a link to the other), and the server from an earlier run is recognised
+# below by this path.
+site="$(pwd -P)/website/_site"
 
 # The published releases, read from GitHub without signing in (the repository
 # is public). Offline, the page is made from the local package alone.
