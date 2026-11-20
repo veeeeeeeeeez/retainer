@@ -1,0 +1,30 @@
+// Code signing for the Xcode build.
+//
+// macOS ties privacy permissions (Accessibility, Screen Recording, Microphone,
+// Speech Recognition) to the identity an app is signed with. An ad-hoc
+// signature changes on every build, which silently invalidates those
+// permissions each time. Signing every build with the same certificate keeps
+// them.
+//
+// Default: the self-signed "Terminal Local Signing" identity created by
+//   (named for the app's first name, and kept: a new identity would be a new
+//   app to macOS, with every permission to grant again)
+//   ./scripts/setup-signing.sh --add-to-search-list
+// It needs no Apple account. The flag makes the identity visible to Xcode.
+//
+// To sign with your Apple Development certificate instead, create
+// Config/Local.xcconfig (it is git-ignored) containing:
+//
+//   CODE_SIGN_STYLE = Automatic
+//   CODE_SIGN_IDENTITY = Apple Development
+//   DEVELOPMENT_TEAM = <your 10-character team id>
+//
+// Pick one identity and keep it. Switching identities counts as a different
+// app to macOS and the permissions have to be granted again.
+
+CODE_SIGN_STYLE = Manual
+CODE_SIGN_IDENTITY = Terminal Local Signing
+DEVELOPMENT_TEAM =
+PROVISIONING_PROFILE_SPECIFIER =
+
+#include? "Local.xcconfig"

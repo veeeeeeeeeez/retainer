@@ -1,0 +1,16 @@
+# Build output
+build/
+.build/
+DerivedData/
+*.xcodeproj
+xcuserdata/
+.swiftpm/
+
+# Local signing overrides
+Config/Local.xcconfig
+
+# Conductor's machine-local repository settings (the Run button's action)
+.conductor/settings.local.toml
+
+# macOS
+.DS_Store
