@@ -32,7 +32,7 @@
   tr:nth-child(odd) td { background: #f7f7f7; }
   td { padding: 14px 18px; font-size: 14px; }
   td.version { color: #222222; }
-  td.date { color: #999999; text-align: right; font-variant-numeric: tabular-nums; }
+  td.date { color: #999999; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
   td.get { text-align: right; white-space: nowrap; }
   td.none { color: #999999; text-align: center; }
   a { color: #555555; text-decoration: underline; }
@@ -44,6 +44,11 @@
     color: #999999;
     font-size: 12px;
     line-height: 1.8;
+  }
+  @media (max-width: 480px) {
+    body { padding: 48px 12px; }
+    td { padding: 12px 10px; font-size: 13px; }
+    .mirror { font-size: 12px; margin-left: 8px; }
   }
 </style>
 </head>
