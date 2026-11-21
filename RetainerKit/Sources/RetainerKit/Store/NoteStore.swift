@@ -40,6 +40,11 @@ public final class NoteStore {
     public private(set) var groups: [NoteGroup] = []
     /// Set when the index on disk could not be read.
     public private(set) var loadError: String?
+    /// The step undo would take back, by name, or `nil` if there is none.
+    /// Kept in step with `undoManager` so buttons can follow it.
+    public private(set) var undoName: String?
+    /// The step redo would do again, by name, or `nil` if there is none.
+    public private(set) var redoName: String?
 
     @ObservationIgnored public let directory: URL
     /// Which days and weeks notes fall in.
@@ -48,6 +53,18 @@ public final class NoteStore {
     @ObservationIgnored private var sampleImagesDirectory: URL?
     @ObservationIgnored private let writer: IndexWriter
     @ObservationIgnored private var pendingSave: DispatchWorkItem?
+    /// Undo and redo for everything a person does to their notes, boards,
+    /// projects and groups. The main window hands it to the Edit menu.
+    @ObservationIgnored public let undoManager = UndoManager()
+    /// Set while an undo or redo puts an earlier state back, so that doing
+    /// so is not itself recorded as something to undo.
+    @ObservationIgnored private var isRestoring = false
+    /// A note whose text is being typed into, and everything as it was
+    /// before the typing began: the whole edit is one step to undo.
+    @ObservationIgnored private var textEdit: (id: UUID, before: String)?
+    /// Pictures of notes that are gone but could come back with an undo.
+    /// They go to the Trash when the app quits, if they are still gone.
+    @ObservationIgnored private var unusedImagePaths: Set<String> = []
     private static let log = Logger(subsystem: "blog.terminal.app", category: "store")
 
     public nonisolated static var defaultDirectory: URL {
@@ -60,6 +77,20 @@ public final class NoteStore {
         self.calendar = calendar
         self.writer = IndexWriter(url: directory.appendingPathComponent("index.json"))
         load()
+        for name: Notification.Name in [
+            .NSUndoManagerDidCloseUndoGroup, .NSUndoManagerDidUndoChange, .NSUndoManagerDidRedoChange,
+        ] {
+            NotificationCenter.default.addObserver(
+                forName: name, object: undoManager, queue: nil
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.refreshUndoNames() }
+            }
+        }
+    }
+
+    private func refreshUndoNames() {
+        undoName = undoManager.canUndo ? undoManager.undoActionName : nil
+        redoName = undoManager.canRedo ? undoManager.redoActionName : nil
     }
 
     // MARK: Reading
@@ -223,8 +254,10 @@ public final class NoteStore {
     // MARK: Mutations
 
     public func add(_ note: Note) {
-        notes.append(note)
-        scheduleSave()
+        undoable("New Note") {
+            notes.append(note)
+            scheduleSave()
+        }
     }
 
     /// Changes a note wherever it lives. `change` says whether it changed
@@ -248,19 +281,25 @@ public final class NoteStore {
     }
 
     public func updateText(id: UUID, text: String) {
-        update(id) { note in
-            guard note.note != text else { return false }
-            note.note = text
-            return true
+        let change = {
+            self.update(id) { note in
+                guard note.note != text else { return false }
+                note.note = text
+                return true
+            }
         }
+        // While it is being typed into, the edit is one step, recorded when it ends.
+        if textEdit?.id == id { change() } else { undoable("Edit Note", change) }
     }
 
     public func move(id: UUID, to position: CGPoint) {
-        let point = CanvasPoint(position)
-        update(id) { note in
-            guard note.position != point else { return false }
-            note.position = point
-            return true
+        undoable("Move Card") {
+            let point = CanvasPoint(position)
+            update(id) { note in
+                guard note.position != point else { return false }
+                note.position = point
+                return true
+            }
         }
     }
 
@@ -268,24 +307,28 @@ public final class NoteStore {
     /// and can be brought back with `restore`. `position` is where its card
     /// sits among the other archived ones of its day, if that has to change.
     public func archive(id: UUID, position: CGPoint? = nil, date: Date = Date()) {
-        update(id) { note in
-            guard !note.isArchived else { return false }
-            note.archivedAt = date
-            // Putting it away is as good as having looked at it.
-            note.seen = true
-            if let position { note.position = CanvasPoint(position) }
-            return true
+        undoable("Archive") {
+            update(id) { note in
+                guard !note.isArchived else { return false }
+                note.archivedAt = date
+                // Putting it away is as good as having looked at it.
+                note.seen = true
+                if let position { note.position = CanvasPoint(position) }
+                return true
+            }
         }
     }
 
     /// Brings an archived note back to its day's board, at `position` if its
     /// old place has been taken since.
     public func restore(id: UUID, position: CGPoint? = nil) {
-        update(id) { note in
-            guard note.isArchived else { return false }
-            note.archivedAt = nil
-            if let position { note.position = CanvasPoint(position) }
-            return true
+        undoable("Restore") {
+            update(id) { note in
+                guard note.isArchived else { return false }
+                note.archivedAt = nil
+                if let position { note.position = CanvasPoint(position) }
+                return true
+            }
         }
     }
 
@@ -300,28 +343,25 @@ public final class NoteStore {
         }
     }
 
-    /// Removes the note and moves its image to the Trash, where it can still
-    /// be recovered. A sample note is simply dropped.
+    /// Removes the note. Its image goes to the Trash, where it can still be
+    /// recovered, when the app quits, unless an undo has brought it back by
+    /// then. A sample note is simply dropped.
     public func delete(id: UUID) {
-        // Gone from every canvas it was on, too, and from every group.
-        for index in canvases.indices {
-            canvases[index].cards.removeAll { $0.noteID == id }
-        }
-        dropFromGroups(id) { _ in true }
-        if let index = sampleNotes.firstIndex(where: { $0.id == id }) {
-            sampleNotes.remove(at: index)
-            return
-        }
-        guard let index = notes.firstIndex(where: { $0.id == id }) else { return }
-        let removed = notes.remove(at: index)
-        let url = directory.appendingPathComponent(removed.imagePath)
-        scheduleSave()
-        ImageFiles.queue.async {
-            do {
-                try FileManager.default.trashItem(at: url, resultingItemURL: nil)
-            } catch {
-                try? FileManager.default.removeItem(at: url)
+        undoable("Delete Card") {
+            // Gone from every canvas it was on, too, and from every group.
+            for index in canvases.indices {
+                canvases[index].cards.removeAll { $0.noteID == id }
             }
+            dropFromGroups(id) { _ in true }
+            if let index = sampleNotes.firstIndex(where: { $0.id == id }) {
+                sampleNotes.remove(at: index)
+                return
+            }
+            guard let index = notes.firstIndex(where: { $0.id == id }) else { return }
+            let removed = notes.remove(at: index)
+            // Kept until the app quits, so that undo can bring it back.
+            unusedImagePaths.insert(removed.imagePath)
+            scheduleSave()
         }
     }
 
@@ -355,57 +395,69 @@ public final class NoteStore {
 
     @discardableResult
     public func addProject(name: String, date: Date = Date()) -> Project {
-        let project = Project(name: Self.tidied(name) ?? "Project", createdAt: date)
-        projects.append(project)
-        scheduleSave()
-        return project
+        undoable("New Project") {
+            let project = Project(name: Self.tidied(name) ?? "Project", createdAt: date)
+            projects.append(project)
+            scheduleSave()
+            return project
+        }
     }
 
     /// Renames a project. An empty name changes nothing.
     public func renameProject(id: UUID, to name: String) {
-        guard let name = Self.tidied(name), let index = projects.firstIndex(where: { $0.id == id }),
-            projects[index].name != name
-        else { return }
-        projects[index].name = name
-        scheduleSave()
+        undoable("Rename Project") {
+            guard let name = Self.tidied(name), let index = projects.firstIndex(where: { $0.id == id }),
+                projects[index].name != name
+            else { return }
+            projects[index].name = name
+            scheduleSave()
+        }
     }
 
     /// Removes a project and its canvases. The notes that were on them are
     /// untouched: they are still on their days.
     public func deleteProject(id: UUID) {
-        guard projects.contains(where: { $0.id == id }) else { return }
-        let gone = Set(canvases.filter { $0.projectID == id }.map { Board.canvas($0.id).id })
-        projects.removeAll { $0.id == id }
-        canvases.removeAll { $0.projectID == id }
-        groups.removeAll { gone.contains($0.board) }
-        scheduleSave()
+        undoable("Delete Project") {
+            guard projects.contains(where: { $0.id == id }) else { return }
+            let gone = Set(canvases.filter { $0.projectID == id }.map { Board.canvas($0.id).id })
+            projects.removeAll { $0.id == id }
+            canvases.removeAll { $0.projectID == id }
+            groups.removeAll { gone.contains($0.board) }
+            scheduleSave()
+        }
     }
 
     /// Adds a canvas to a project, or `nil` if there is no such project.
     @discardableResult
     public func addCanvas(in projectID: UUID, name: String, date: Date = Date()) -> ProjectCanvas? {
-        guard projects.contains(where: { $0.id == projectID }) else { return nil }
-        let canvas = ProjectCanvas(projectID: projectID, name: Self.tidied(name) ?? "Canvas", createdAt: date)
-        canvases.append(canvas)
-        scheduleSave()
-        return canvas
+        undoable("New Canvas") {
+            guard projects.contains(where: { $0.id == projectID }) else { return nil }
+            let canvas = ProjectCanvas(projectID: projectID, name: Self.tidied(name) ?? "Canvas", createdAt: date)
+            canvases.append(canvas)
+            scheduleSave()
+            return canvas
+        }
     }
 
     /// Renames a canvas. An empty name changes nothing.
     public func renameCanvas(id: UUID, to name: String) {
-        guard let name = Self.tidied(name), let index = canvases.firstIndex(where: { $0.id == id }),
-            canvases[index].name != name
-        else { return }
-        canvases[index].name = name
-        scheduleSave()
+        undoable("Rename Canvas") {
+            guard let name = Self.tidied(name), let index = canvases.firstIndex(where: { $0.id == id }),
+                canvases[index].name != name
+            else { return }
+            canvases[index].name = name
+            scheduleSave()
+        }
     }
 
     /// Removes a canvas. The notes that were on it are untouched.
     public func deleteCanvas(id: UUID) {
-        guard canvases.contains(where: { $0.id == id }) else { return }
-        canvases.removeAll { $0.id == id }
-        groups.removeAll { $0.board == Board.canvas(id).id }
-        scheduleSave()
+        undoable("Delete Canvas") {
+            guard canvases.contains(where: { $0.id == id }) else { return }
+            canvases.removeAll { $0.id == id }
+            groups.removeAll { $0.board == Board.canvas(id).id }
+            scheduleSave()
+        }
     }
 
     /// The notes on a canvas, in the order they were put there, each with
@@ -434,28 +486,32 @@ public final class NoteStore {
     /// Puts a note on a canvas at `position`, or moves it there if it is
     /// already on it. Its place on its day's board is not touched.
     public func place(noteID: UUID, on canvasID: UUID, at position: CGPoint) {
-        guard note(noteID) != nil, let index = canvases.firstIndex(where: { $0.id == canvasID }) else { return }
-        let point = CanvasPoint(position)
-        if let card = canvases[index].cards.firstIndex(where: { $0.noteID == noteID }) {
-            guard canvases[index].cards[card].position != point else { return }
-            canvases[index].cards[card].position = point
-        } else {
-            canvases[index].cards.append(ProjectCanvas.Placement(noteID: noteID, position: point))
+        undoable(isPlaced(noteID, on: canvasID) ? "Move Card" : "Add to Canvas") {
+            guard note(noteID) != nil, let index = canvases.firstIndex(where: { $0.id == canvasID }) else { return }
+            let point = CanvasPoint(position)
+            if let card = canvases[index].cards.firstIndex(where: { $0.noteID == noteID }) {
+                guard canvases[index].cards[card].position != point else { return }
+                canvases[index].cards[card].position = point
+            } else {
+                canvases[index].cards.append(ProjectCanvas.Placement(noteID: noteID, position: point))
+            }
+            // A made-up note's place is kept only while the app is open.
+            if !isSample(noteID) { scheduleSave() }
         }
-        // A made-up note's place is kept only while the app is open.
-        if !isSample(noteID) { scheduleSave() }
     }
 
     /// Takes a note off a canvas. The note itself stays.
     public func remove(noteID: UUID, from canvasID: UUID) {
-        guard let index = canvases.firstIndex(where: { $0.id == canvasID }),
-            canvases[index].cards.contains(where: { $0.noteID == noteID })
-        else { return }
-        canvases[index].cards.removeAll { $0.noteID == noteID }
-        // No longer on the canvas, so not in a group there either.
-        let board = Board.canvas(canvasID).id
-        dropFromGroups(noteID) { $0.board == board }
-        if !isSample(noteID) { scheduleSave() }
+        undoable("Remove from Canvas") {
+            guard let index = canvases.firstIndex(where: { $0.id == canvasID }),
+                canvases[index].cards.contains(where: { $0.noteID == noteID })
+            else { return }
+            canvases[index].cards.removeAll { $0.noteID == noteID }
+            // No longer on the canvas, so not in a group there either.
+            let board = Board.canvas(canvasID).id
+            dropFromGroups(noteID) { $0.board == board }
+            if !isSample(noteID) { scheduleSave() }
+        }
     }
 
     // MARK: Groups
@@ -491,55 +547,67 @@ public final class NoteStore {
     public func makeGroup(
         on board: String, of noteIDs: [UUID], at position: CGPoint, name: String = "", date: Date = Date()
     ) -> NoteGroup? {
-        var unique: [UUID] = []
-        for id in noteIDs where note(id) != nil && !unique.contains(id) { unique.append(id) }
-        guard unique.count >= 2 else { return nil }
-        for id in unique { dropFromGroups(id) { $0.board == board } }
-        let group = NoteGroup(
-            name: name.trimmingCharacters(in: .whitespacesAndNewlines), board: board, noteIDs: unique,
-            position: CanvasPoint(position), createdAt: date)
-        groups.append(group)
-        scheduleSave()
-        return group
+        undoable("Group") {
+            var unique: [UUID] = []
+            for id in noteIDs where note(id) != nil && !unique.contains(id) { unique.append(id) }
+            guard unique.count >= 2 else { return nil }
+            for id in unique { dropFromGroups(id) { $0.board == board } }
+            let group = NoteGroup(
+                name: name.trimmingCharacters(in: .whitespacesAndNewlines), board: board, noteIDs: unique,
+                position: CanvasPoint(position), createdAt: date)
+            groups.append(group)
+            scheduleSave()
+            return group
+        }
     }
 
     /// Adds a note to a group. If it was in another group on that board, it
     /// leaves that one.
     public func addToGroup(noteID: UUID, groupID: UUID) {
-        guard note(noteID) != nil, let target = group(groupID), !target.noteIDs.contains(noteID) else { return }
-        dropFromGroups(noteID) { $0.board == target.board }
-        guard let index = groups.firstIndex(where: { $0.id == groupID }) else { return }
-        groups[index].noteIDs.append(noteID)
-        scheduleSave()
+        undoable("Add to Group") {
+            guard note(noteID) != nil, let target = group(groupID), !target.noteIDs.contains(noteID) else { return }
+            dropFromGroups(noteID) { $0.board == target.board }
+            guard let index = groups.firstIndex(where: { $0.id == groupID }) else { return }
+            groups[index].noteIDs.append(noteID)
+            scheduleSave()
+        }
     }
 
     /// Takes a note out of a group. A group left with one note is no longer
     /// a group: it goes, and that note is a card again.
     public func removeFromGroup(noteID: UUID, groupID: UUID) {
-        dropFromGroups(noteID) { $0.id == groupID }
-        scheduleSave()
+        undoable("Remove from Group") {
+            dropFromGroups(noteID) { $0.id == groupID }
+            scheduleSave()
+        }
     }
 
     /// A name for the group, or none: an empty name is allowed.
     public func renameGroup(id: UUID, to name: String) {
-        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let index = groups.firstIndex(where: { $0.id == id }), groups[index].name != name else { return }
-        groups[index].name = name
-        scheduleSave()
+        undoable("Rename Group") {
+            let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let index = groups.firstIndex(where: { $0.id == id }), groups[index].name != name else { return }
+            groups[index].name = name
+            scheduleSave()
+        }
     }
 
     public func moveGroup(id: UUID, to position: CGPoint) {
-        let point = CanvasPoint(position)
-        guard let index = groups.firstIndex(where: { $0.id == id }), groups[index].position != point else { return }
-        groups[index].position = point
-        scheduleSave()
+        undoable("Move Group") {
+            let point = CanvasPoint(position)
+            guard let index = groups.firstIndex(where: { $0.id == id }), groups[index].position != point else { return }
+            groups[index].position = point
+            scheduleSave()
+        }
     }
 
     /// Ends a group. Its notes are untouched and become cards again.
     public func ungroup(id: UUID) {
-        guard groups.contains(where: { $0.id == id }) else { return }
-        groups.removeAll { $0.id == id }
-        scheduleSave()
+        undoable("Ungroup") {
+            guard groups.contains(where: { $0.id == id }) else { return }
+            groups.removeAll { $0.id == id }
+            scheduleSave()
+        }
     }
 
     /// Takes a note out of the groups that match, and ends any group that is
@@ -549,6 +617,107 @@ public final class NoteStore {
             groups[index].noteIDs.removeAll { $0 == noteID }
         }
         groups.removeAll { $0.noteIDs.count < 2 }
+    }
+
+    // MARK: Undo
+
+    /// Everything that undo puts back.
+    private struct Snapshot: Equatable {
+        var notes: [Note]
+        var sampleNotes: [Note]
+        var projects: [Project]
+        var canvases: [ProjectCanvas]
+        var groups: [NoteGroup]
+    }
+
+    private var snapshot: Snapshot {
+        Snapshot(notes: notes, sampleNotes: sampleNotes, projects: projects, canvases: canvases, groups: groups)
+    }
+
+    /// Runs a change and, if it changed anything, records it as one step
+    /// to undo under `name` (shown as "Undo <name>" in the Edit menu).
+    /// Changes made in the same turn of the run loop, such as the moves
+    /// that set an ungrouped group's cards down, undo together.
+    private func undoable<T>(_ name: @autoclosure () -> String, _ change: () -> T) -> T {
+        guard !isRestoring else { return change() }
+        let before = snapshot
+        let label = name()
+        let result = change()
+        if snapshot != before { registerUndo(back: before, named: label) }
+        return result
+    }
+
+    private func registerUndo(back state: Snapshot, named name: String) {
+        undoManager.registerUndo(withTarget: self) { store in
+            MainActor.assumeIsolated { store.put(back: state, named: name) }
+        }
+        undoManager.setActionName(name)
+    }
+
+    /// Puts an earlier state back, and records the state it replaces so the
+    /// step can be redone (or undone again after a redo).
+    private func put(back state: Snapshot, named name: String) {
+        if textEdit != nil { finishTextEdit() }
+        let current = snapshot
+        registerUndo(back: current, named: name)
+        isRestoring = true
+        defer { isRestoring = false }
+        // What happened on its own since is not taken back: a card that has
+        // been looked at stays looked at, and a link's card keeps its picture.
+        func merged(_ old: [Note], with now: [Note]) -> [Note] {
+            let byID = Dictionary(now.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+            return old.map { note in
+                guard let latest = byID[note.id] else { return note }
+                var note = note
+                note.seen = note.seen || latest.seen
+                note.imagePixelSize = latest.imagePixelSize
+                note.imageScale = latest.imageScale
+                return note
+            }
+        }
+        notes = merged(state.notes, with: current.notes)
+        sampleNotes = merged(state.sampleNotes, with: current.sampleNotes)
+        projects = state.projects
+        canvases = state.canvases
+        groups = state.groups
+        // Pictures of notes that this takes away wait for the Trash; those
+        // it brings back are no longer waiting.
+        let kept = Set(notes.map(\.imagePath))
+        unusedImagePaths.formUnion(current.notes.map(\.imagePath).filter { !kept.contains($0) })
+        unusedImagePaths.subtract(kept)
+        scheduleSave()
+    }
+
+    /// Starts typing into a note's text. Until `endTextEdit`, the text can
+    /// change with every key; all of it is undone as one step.
+    public func beginTextEdit(id: UUID) {
+        if textEdit != nil { finishTextEdit() }
+        guard let note = note(id) else { return }
+        textEdit = (id, note.note)
+    }
+
+    /// Ends typing into a note's text, recording the edit as one step to undo
+    /// if the text changed.
+    public func endTextEdit(id: UUID) {
+        guard textEdit?.id == id else { return }
+        finishTextEdit()
+    }
+
+    private func finishTextEdit() {
+        guard let edit = textEdit else { return }
+        textEdit = nil
+        // Everything as it is now, but with the note's text as it was before
+        // the typing: other changes made meanwhile are steps of their own.
+        var before = snapshot
+        func revert(_ list: inout [Note]) -> Bool {
+            guard let index = list.firstIndex(where: { $0.id == edit.id }), list[index].note != edit.before
+            else { return false }
+            list[index].note = edit.before
+            return true
+        }
+        if revert(&before.notes) || revert(&before.sampleNotes) {
+            registerUndo(back: before, named: "Edit Note")
+        }
     }
 
     // MARK: Persistence
@@ -572,9 +741,31 @@ public final class NoteStore {
     /// Writes everything that is pending and waits for it to reach the disk.
     /// Called before the app exits.
     public func flush() {
+        if textEdit != nil { finishTextEdit() }
         if pendingSave != nil { saveNow() }
+        trashUnusedImages()
         writer.waitUntilIdle()
         ImageFiles.waitUntilIdle()
+    }
+
+    /// Sends the pictures of deleted notes to the Trash. Undo can no longer
+    /// bring them back afterwards, so the steps that could are forgotten.
+    private func trashUnusedImages() {
+        let kept = Set(notes.map(\.imagePath))
+        let urls = unusedImagePaths.subtracting(kept).map { directory.appendingPathComponent($0) }
+        unusedImagePaths = []
+        guard !urls.isEmpty else { return }
+        undoManager.removeAllActions()
+        refreshUndoNames()
+        ImageFiles.queue.async {
+            for url in urls {
+                do {
+                    try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+                } catch {
+                    try? FileManager.default.removeItem(at: url)
+                }
+            }
+        }
     }
 
     private func encodedIndex() -> Data? {

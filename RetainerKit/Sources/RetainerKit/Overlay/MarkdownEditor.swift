@@ -155,6 +155,12 @@ struct MarkdownEditor: NSViewRepresentable {
         weak var textView: NSTextView?
         var frameObserver: NSObjectProtocol?
         private var lastReportedHeight: CGFloat = -1
+        /// The typing's own undo, apart from the window's: there, ⌘Z takes
+        /// back whole steps on the board, and the editor's keystrokes would
+        /// outlive the editor.
+        private let typingUndo = UndoManager()
+
+        func undoManager(for view: NSTextView) -> UndoManager? { typingUndo }
 
         init(_ parent: MarkdownEditor) {
             self.parent = parent
