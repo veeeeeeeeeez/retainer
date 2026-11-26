@@ -33,6 +33,7 @@ struct RootView: View {
         .environment(app.images)
         .preferredColorScheme(app.settings.lightMode ? .light : .dark)
         .animation(.easeOut(duration: 0.12), value: app.showsSettings)
+        .animation(.easeOut(duration: 0.12), value: app.search.isOpen)
         .animation(.easeOut(duration: 0.15), value: app.showsChecklist)
         .animation(.easeOut(duration: 0.12), value: app.canvas.viewingNoteID)
         .animation(.easeOut(duration: 0.12), value: app.canvas.expandedNoteID)
@@ -115,6 +116,11 @@ struct RootView: View {
                     withAnimation(.easeOut(duration: 0.12)) { app.canvas.viewingNoteID = nil }
                 }
                 .ignoresSafeArea()
+            }
+
+            if app.search.isOpen {
+                SearchPanel(app: app)
+                    .ignoresSafeArea()
             }
         }
     }

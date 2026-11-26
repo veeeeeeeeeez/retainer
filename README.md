@@ -21,9 +21,15 @@ notes' folder (`~/Library/Application Support/Terminal`). Renaming any of
 them would mean granting the permissions again or moving the notes, so they
 were left. Everything else is Retainer.
 
+**⌘K** searches everything: what you said, where it came from, and the words
+in the screenshots (read on this Mac). With an Anthropic key in the settings
+it also finds notes by what they mean ("the painting of mountains").
+
 Everything runs on this Mac. The app goes to the network for two things only:
 the one-time download of a speech model, and the page of a link you paste, to
-take a picture of it for the card.
+take a picture of it for the card. Search by meaning is a third, and only if
+you give it a key: then the words of your notes and of their pictures go to
+Anthropic each time you search. Without a key nothing does.
 
 ## Read this first
 
@@ -61,6 +67,31 @@ Xcode installed**. That shaped what could be verified:
 
 The full list, and what to try by hand first, is in
 [What was and was not verified](#what-was-and-was-not-verified).
+
+## Search
+
+⌘K (or ⌘F, or the round magnifying glass beside the `timeline | projects`
+switch at the top) opens a box at the top of the board, where the switch is. Notes with your words in them show as you type: every word has to be
+somewhere in the note, in what you said, the app, the page's title or link,
+or the text in the screenshot. Up and down choose, Return goes to the note on
+its day (or on the canvas in front, if it is there) and opens it, Escape
+closes.
+
+- **Pictures.** The text in every screenshot is read in the background with
+  Vision, on this Mac, and kept in `picture-text.json` beside the notes. That
+  file only saves reading them again and can be deleted.
+- **By meaning.** With an Anthropic key (Settings, "Search by meaning"), a
+  moment after you stop typing the search and a listing of your notes go to
+  Claude (`MeaningSearch.model`, one constant), and the notes it names come
+  first: by subject, by time ("last Thursday"), or by something only the
+  picture says. The key is kept in the Mac's keychain, never in the notes'
+  folder, the repository or the app, so a build given to someone else has
+  none. Of each picture's text the first 700 characters are sent, and the
+  listing stops at 600,000 characters, newest notes first; older ones are
+  still found by their words. If Claude cannot be reached, the word matches
+  stay and a line under them says so.
+- `Retainer --search "<query>"` runs the same search from a terminal, and
+  `--read <picture>` prints what is read from one picture.
 
 ## Requirements
 
@@ -1008,6 +1039,11 @@ screen can be caught before its screenshots have loaded.
 | The window's edges as the map: a card lights only the edges it lies wholly beyond, where it is along them and in its own colour; the other edges stay dark; its light is a little wider than the card and ends there, and a pile of cards is brighter but no wider; a card beyond a corner lights the two edges that meet there, more on the one it is further beyond, and one far above and only just past the corner hardly lights the side; the light comes up as a card goes out of sight, is fainter far off but never out; a card that can be seen, even partly, gives none; the same light whatever number of samples the edge is drawn with | 1 test, and `--edges` renders on a wide window, reviewed by eye |
 | Every card out of view, and which way they are: nothing said while any part of a card can be seen or there are no cards; one card pointed at, straight up when it is above the middle and on the slant when off to a side; cards lying the same way one direction, towards the middle of them; cards with a gap between them a direction each, the fuller first, and a cluster across the place where angles wrap not cut in two; never more than three; ringed all round, the nearest; a name for each direction to be read out | 6 tests, the same `--edges` renders, and `--motion` for the fade in and out (nothing for 0.15 s, then up over half a second; gone in 0.2 s), the chevrons' turns, and a chevron moving at once when the direction changes |
 | Undo and redo: delete (the card back on its canvases and in its groups, its picture kept on disk until quit), moves, archive and restore, renames, project deletion, newest first; nothing recorded for changes that change nothing; typing into a card one step however many keys, with changes made meanwhile kept apart; a card's new marker and a link's picture not taken back; what an undo puts back saved | 7 tests |
+| Search by words: every word needed, case and accents ignored, small words of a sentence left out, words spread over the note, its source and its picture; what was said before source before picture, then newest first; the line shown, round the match, with the words marked | 3 tests; `--search` over 75 real notes |
+| Pictures read once each, kept across a relaunch, read again when a link's card gets its picture, a file not yet written tried three times, a note of words alone never read | 1 test with a stand-in reader; `--read` on real screenshots (about 0.3 s each) |
+| Search by meaning: the listing Claude is shown, its answer read back as notes, a refusal or a reply that is not a list, the request the same bytes each time with the notes cached ahead of the search; the box showing word matches at once and Claude's first when they come, a line moved to staying chosen, only the last thing typed asked about, by words alone with no key or no answer | 6 tests with a stand-in for Claude; `--search` against the real service: "the painting of mountains" found the Bierstadt card with none of those words in it, 1.2 to 2.1 s |
+| The search box in the real window: ⌘K's menu item opening it with the keyboard in it, results as typed, down moving the choice, Return going to the note and opening its card, Escape closing the box and leaving an open card open | By hand, once, on macOS 15.7 |
+| Going to a found note: its day, the middle of the window, its card opened; its day's archive if archived; staying on the canvas in front if it is there | 1 test |
 | Time: where a day, week and month start and end, stepping across month and year ends, how periods are named; the timeline's tiles at each scale; several days set out as blocks that keep their shape, never touch and read in date order; sample days the same every time, never today, stable as days pass | 13 tests |
 | Source links: what is kept and what is ignored, and how a link is shown | 5 tests; the lookup itself run against Chrome (found, 29 ms) and Spotify, Slack, Notes, Finder and Conductor (correctly nothing) |
 | The palette in both appearances, text contrast on every surface, the light-mode switch | 4 tests |
@@ -1096,7 +1132,11 @@ Roughly in the order worth trying.
     archive, restore and delete on it and in the right-click menu; Escape
     closing the card but only ending the edit while one is in progress;
     "N new" and "N archived" in the status bar; the new marker clearing
-    after a second in view; the Dock badge; ⌘Z and ⇧⌘Z on the board, and
+    after a second in view; the Dock badge; in the search box, clicking a
+    line, clicking outside it to close, scrolling a long list with the
+    arrows, ⌘F, the key's field in the settings (the key was put in the
+    keychain from a terminal, not typed there), and the line under the
+    results when Claude cannot be reached; ⌘Z and ⇧⌘Z on the board, and
     the names in the Edit menu ("Undo Delete Card"); the settings panel, and the whole
     window changing colour when light mode is switched; pasting a link and a
     picture into the input box from real apps (Safari, Chrome, Finder,

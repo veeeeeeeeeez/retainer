@@ -145,6 +145,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         edit.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
         edit.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
         edit.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        edit.addItem(.separator())
+        edit.addItem(target(self, "Search…", #selector(showSearch), "k"))
+        // ⌘F does the same, without a second line in the menu.
+        let find = target(self, "Find…", #selector(showSearch), "f")
+        find.isHidden = true
+        find.allowsKeyEquivalentWhenHidden = true
+        edit.addItem(find)
         main.addItem(submenu(edit, title: "Edit"))
 
         let view = NSMenu(title: "View")
@@ -248,6 +255,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc private func showSettings() {
         showWindow()
         app?.showsSettings = true
+    }
+
+    @objc private func showSearch() {
+        showWindow()
+        app?.toggleSearch()
     }
 
     @objc private func showNextNewNote() {

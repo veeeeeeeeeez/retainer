@@ -24,11 +24,15 @@ struct TopBar: View {
     var body: some View {
         let navigation = app.navigation
         VStack(spacing: 7) {
-            SegmentedPill(
-                options: Navigation.Mode.allCases, selection: navigation.mode, title: \.title,
-                symbol: { $0.symbol }, large: true
-            ) { mode in
-                withAnimation(.easeOut(duration: 0.18)) { app.setMode(mode) }
+            // The switch and, beside it, search: the two together in the middle.
+            HStack(spacing: 8) {
+                SegmentedPill(
+                    options: Navigation.Mode.allCases, selection: navigation.mode, title: \.title,
+                    symbol: { $0.symbol }, large: true
+                ) { mode in
+                    withAnimation(.easeOut(duration: 0.18)) { app.setMode(mode) }
+                }
+                SearchButton { app.toggleSearch() }
             }
             switch navigation.mode {
             case .timeline:
@@ -46,6 +50,57 @@ struct TopBar: View {
                     .id(navigation.browsingProjectID)
             }
         }
+    }
+}
+
+/// Search, as a round button beside the switch: bright enough to be found,
+/// with its name and its keys beside it while the pointer is over it.
+private struct SearchButton: View {
+
+    var action: () -> Void
+
+    @State private var hovering = false
+
+    /// As tall as the switch it sits beside.
+    private static let side: CGFloat = 27
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Theme.text)
+                .frame(width: Self.side, height: Self.side)
+                .background(hovering ? Theme.selected : Theme.panel, in: Circle())
+                .overlay { Circle().strokeBorder(Theme.hairlineStrong, lineWidth: Theme.hairlineWidth) }
+                .shadow(color: .black.opacity(0.35), radius: 6, y: 4)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .accessibilityLabel("Search")
+        // Beside the button, taking no room of its own: the switch stays where it is.
+        .overlay(alignment: .leading) {
+            if hovering {
+                HStack(spacing: 6) {
+                    Text("Search").foregroundStyle(Theme.text)
+                    Text("⌘K").foregroundStyle(Theme.textSecondary)
+                }
+                .font(Theme.mono(11))
+                .padding(.horizontal, 8)
+                .frame(height: 20)
+                .background(Theme.selected, in: RoundedRectangle(cornerRadius: 6))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 6)
+                        .strokeBorder(Theme.hairlineStrong, lineWidth: Theme.hairlineWidth)
+                }
+                .fixedSize()
+                .offset(x: Self.side + 8)
+                .allowsHitTesting(false)
+                .transition(.opacity)
+                .accessibilityHidden(true)
+            }
+        }
+        .animation(.easeOut(duration: 0.12), value: hovering)
     }
 }
 
