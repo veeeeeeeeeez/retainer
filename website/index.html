@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Retainer Downloads</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #ffffff;
+    color: #333333;
+    font-family: -apple-system, "SF Pro Text", "Roboto", "Helvetica Neue", sans-serif;
+    display: flex;
+    justify-content: center;
+    padding: 72px 16px;
+  }
+  main { width: 100%; max-width: 640px; }
+  h1 {
+    font-size: 22px;
+    font-weight: 400;
+    text-align: center;
+    color: #222222;
+    margin-bottom: 40px;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    border: 1px solid #dddddd;
+  }
+  tr { border-bottom: 1px solid #dddddd; }
+  tr:last-child { border-bottom: none; }
+  tr:nth-child(odd) td { background: #f7f7f7; }
+  td { padding: 14px 18px; font-size: 14px; }
+  td.version { color: #222222; }
+  td.date { color: #999999; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  td.get { text-align: right; white-space: nowrap; }
+  td.none { color: #999999; text-align: center; }
+  a { color: #555555; text-decoration: underline; }
+  a:hover { color: #222222; }
+  .mirror { color: #999999; font-size: 13px; margin-left: 12px; }
+  footer {
+    margin-top: 40px;
+    text-align: center;
+    color: #999999;
+    font-size: 12px;
+    line-height: 1.8;
+  }
+  @media (max-width: 480px) {
+    body { padding: 48px 12px; }
+    td { padding: 12px 10px; font-size: 13px; }
+    .mirror { font-size: 12px; margin-left: 8px; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>Retainer Downloads</h1>
+  <table>
+<!-- releases -->
+  </table>
+  <footer>
+    macOS 15 or later, Apple silicon<br>
+    If macOS won’t open it: System Settings › Privacy &amp; Security › Open Anyway
+  </footer>
+</main>
+<script>
+  // Each date is written as it is in UTC. Show it as it is where the reader is.
+  for (const time of document.querySelectorAll("time")) {
+    const moment = new Date(time.dateTime);
+    if (!isNaN(moment)) {
+      const two = (number) => String(number).padStart(2, "0");
+      time.textContent = moment.getFullYear() + "-" + two(moment.getMonth() + 1) + "-" + two(moment.getDate());
+    }
+  }
+</script>
+</body>
+</html>

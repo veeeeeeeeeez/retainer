@@ -31,5 +31,11 @@ else
         echo "       Install Xcode 26+ and select it with xcode-select, or set TERMINAL_TOOLCHAIN." >&2
         exit 1
     fi
+    # swift is run from inside the toolchain, not through /usr/bin/swift, so
+    # nothing else sets SDKROOT. The link step reads the SDK's version from
+    # it; left unset, the deployment target is written into the binary as the
+    # SDK it was built with, and macOS 26 then treats the app as one made for
+    # macOS 15.
+    export SDKROOT="$(xcrun --show-sdk-path)"
 fi
 export SWIFT

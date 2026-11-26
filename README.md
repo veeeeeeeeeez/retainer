@@ -217,6 +217,58 @@ tccutil reset All blog.terminal.app
 
 To remove the local identity: `./scripts/setup-signing.sh --remove`.
 
+## Releases and the downloads page
+
+Builds for other people to try are on a small downloads page,
+<https://veeeeeeeeeez.github.io/retainer/>: one row for each release, as a
+disk image and as a zip.
+
+**Releases make themselves.** A push to `main` that changes the app (`App/`,
+the sources in `RetainerKit/`, or the scripts that build and package it) runs
+`.github/workflows/release.yml` on a macOS 26 runner. It builds and packages
+the app, unpacks the zip again and starts the app from it, publishes the two
+files as a GitHub release called "Retainer <version> (<build>)", and
+redeploys the page with the new release on top. `<version>` is
+`CFBundleShortVersionString` in `App/Info.plist`; `<build>` is the number of
+the workflow run, also written into the app as its `CFBundleVersion`. A push
+to any other branch releases nothing, and neither does one that changes only
+the tests, this README or the page. A push that changes `website/` redeploys
+the page without a release. To make a release by hand: Actions ▸ Release ▸
+Run workflow.
+
+**To package the copy you are working on:**
+
+```sh
+./scripts/package.sh    # builds; writes website/downloads/Retainer-<version>-local.dmg and .zip
+./scripts/site.sh       # the page on http://localhost:3000, with that package above the releases
+```
+
+`site.sh` can sit beside Run in Conductor, as a second action in the same
+`.conductor/settings.local.toml`:
+
+```toml
+[scripts.run.site]
+available_in = [ "local" ]
+command = "./scripts/site.sh"
+icon = "globe"
+```
+
+**What whoever downloads it will meet.** There is no Apple Developer account
+behind this app, so nothing here is notarised:
+
+- *The first time it is opened, macOS refuses* ("Apple could not verify…").
+  System Settings ▸ Privacy & Security ▸ Open Anyway lets it through, once.
+  The page's last line says so.
+- *Releases built on GitHub are signed ad hoc*, there being no certificate
+  there to sign with. To macOS each release is therefore a different app:
+  after replacing one with the next, the four permissions have to be given
+  again (if System Settings still shows them as on, `tccutil reset All
+  blog.terminal.app` clears the old ones first). For the same reason a
+  downloaded release and a build made on your own Mac do not share
+  permissions. A package made with `package.sh` is signed with the local
+  identity, like any other build made here.
+- Apple silicon only, macOS 15 or later: see [Requirements](#requirements).
+
 ## Permissions
 
 On launch the window shows a checklist of four permissions, each with live
@@ -853,7 +905,9 @@ before running the app.
 project.yml                 XcodeGen spec for the app target
 App/                        entry point, Info.plist and icon for the app bundle
 Config/Signing.xcconfig     signing for the Xcode build
-scripts/                    build, test, signing and toolchain scripts
+scripts/                    build, test, signing, toolchain and packaging scripts
+website/                    the downloads page and the script that renders it
+.github/workflows/          the release and the page's deployment
 RetainerKit/                Swift package holding all app code and the tests
   Sources/RetainerKit/
     Config/                 CaptureConfig

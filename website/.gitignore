@@ -1,0 +1,5 @@
+# Packages made by scripts/package.sh
+downloads/
+
+# The page as rendered by build.py
+_site/

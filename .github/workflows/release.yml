@@ -1,0 +1,77 @@
+name: Release
+
+# Publishes a build of the app as a GitHub release, then redeploys the
+# downloads page so that the new release is on it.
+#
+# Runs when a push to main changes the app itself. A push that changes only
+# the tests, the README or the website releases nothing. "Run workflow" on
+# the Actions tab makes a release by hand.
+on:
+  push:
+    branches: [main]
+    paths:
+      - App/**
+      - RetainerKit/**
+      - "!RetainerKit/Tests/**"
+      - scripts/build.sh
+      - scripts/package.sh
+      - scripts/signing.sh
+      - scripts/toolchain.sh
+  workflow_dispatch:
+
+# One release at a time. If pushes arrive while one is building, the newest
+# of them is built next and the ones in between are skipped.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build and publish
+    # Apple silicon, with the macOS 26 SDK the app needs.
+    runs-on: macos-26
+    timeout-minutes: 45
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      # There is no signing identity here, so build.sh signs ad hoc.
+      - name: Build and package
+        env:
+          RETAINER_BUILD_NUMBER: ${{ github.run_number }}
+        run: ./scripts/package.sh dist
+
+      # Unpacked from the zip, as someone who downloaded it would have it. A
+      # developer switch renders a few pictures and exits: enough to show
+      # that the app loads and draws on this macOS.
+      - name: Check that the packaged app starts
+        timeout-minutes: 10
+        run: |
+          ditto -x -k dist/Retainer-*.zip "$RUNNER_TEMP/unpacked"
+          "$RUNNER_TEMP/unpacked/Retainer.app/Contents/MacOS/Retainer" --maps "$RUNNER_TEMP/maps"
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' App/Info.plist)"
+          tag="v$version-$GITHUB_RUN_NUMBER"
+          if gh release view "$tag" > /dev/null 2>&1; then
+            # This run is being run again: replace the files it attached.
+            gh release upload "$tag" dist/Retainer-*.dmg dist/Retainer-*.zip --clobber
+          else
+            gh release create "$tag" dist/Retainer-*.dmg dist/Retainer-*.zip \
+              --target "$GITHUB_SHA" \
+              --title "Retainer $version ($GITHUB_RUN_NUMBER)" \
+              --notes "Built from $GITHUB_SHA."
+          fi
+
+  page:
+    name: Downloads page
+    needs: release
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/site.yml
