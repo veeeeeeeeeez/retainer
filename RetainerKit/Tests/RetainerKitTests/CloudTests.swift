@@ -190,7 +190,9 @@ struct AccountTests {
         #expect(permissions?.intValue == 0o600)
 
         let again = Account(directory: mac.directory, service: cloud, defaults: mac.defaults) { _ in }
-        #expect(again.session == mac.account.session)
+        #expect(again.session?.refreshToken == mac.account.session?.refreshToken)
+        #expect(again.session?.userID == "ada")
+        #expect(again.email == "ada@example.com")
 
         mac.account.signOut()
         #expect(!mac.account.isSignedIn)
@@ -471,7 +473,11 @@ struct CloudSyncTests {
         await one.sync.sync()
         await two.sync.sync()
         // The same on both, to the second (which is as fine as a saved date goes).
-        #expect(CloudSync.canonical(two.store.saved.notes) == CloudSync.canonical(one.store.saved.notes))
+        // (Two notes saved in the same second may be in either order.)
+        let byID: (Note, Note) -> Bool = { $0.id.uuidString < $1.id.uuidString }
+        #expect(
+            CloudSync.canonical(two.store.saved.notes.sorted(by: byID))
+                == CloudSync.canonical(one.store.saved.notes.sorted(by: byID)))
         #expect(CloudSync.canonical(two.store.saved.canvases) == CloudSync.canonical(one.store.saved.canvases))
         #expect(CloudSync.canonical(two.store.saved.groups) == CloudSync.canonical(one.store.saved.groups))
         #expect(two.store.projects.map(\.name) == ["Thesis"])

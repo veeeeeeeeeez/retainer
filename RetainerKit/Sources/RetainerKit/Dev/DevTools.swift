@@ -34,6 +34,20 @@ enum DevTools {
             return arguments[index + 1]
         }
 
+        if let code = value(after: "--cloud-check") {
+            // Signs in with a code from the website (and the secret its
+            // challenge was made from), then runs cloud mode between two
+            // made-up Macs against the real server, and cleans up after.
+            let application = NSApplication.shared
+            application.setActivationPolicy(.prohibited)
+            let verifier = value(after: "--verifier") ?? ""
+            Task { @MainActor in
+                let passed = await CloudCheck.run(code: code, verifier: verifier)
+                exit(passed ? 0 : 1)
+            }
+            application.run()
+        }
+
         if let directory = value(after: "--snapshot") {
             let application = NSApplication.shared
             application.setActivationPolicy(.prohibited)

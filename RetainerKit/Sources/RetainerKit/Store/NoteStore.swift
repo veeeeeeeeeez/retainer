@@ -845,7 +845,7 @@ public final class NoteStore {
         unusedImagePaths.subtract(notes.map(\.imagePath))
         // Each list is in the order its things were made, wherever they were made.
         if notes.count != hadNotes || !changes.notes.isEmpty {
-            notes.sort { $0.timestamp < $1.timestamp }
+            notes.sort { ($0.timestamp, $0.id.uuidString) < ($1.timestamp, $1.id.uuidString) }
         }
         projects.sort { $0.createdAt < $1.createdAt }
         canvases.sort { $0.createdAt < $1.createdAt }
