@@ -21,6 +21,14 @@ public final class AppModel {
     public let staging = StagingModel()
     /// What the bar at the top is showing: the timeline, or the projects.
     public let navigation: Navigation
+    /// The words in each note's picture, read in the background.
+    public let pictureText: PictureText
+    /// The search box.
+    public let search = SearchModel()
+    /// Who is signed in.
+    public let account: Account
+    /// Cloud mode: the notes kept the same here and in the account's cloud copy.
+    public let cloud: CloudSync
 
     /// Whether the on-device language model can be used for tidying.
     public private(set) var tidyAvailability: TidyAvailability = .unavailable("checking")
@@ -34,7 +42,10 @@ public final class AppModel {
 
     @ObservationIgnored private var refreshCount = 0
 
-    public init(config: CaptureConfig = .standard, defaults: UserDefaults = .standard, storeDirectory: URL? = nil) {
+    public init(
+        config: CaptureConfig = .standard, defaults: UserDefaults = .standard, storeDirectory: URL? = nil,
+        cloudService: any CloudService = SupabaseService()
+    ) {
         self.config = config
         settings = AppSettings(defaults: defaults)
         permissions = PermissionsModel()
@@ -44,6 +55,9 @@ public final class AppModel {
         canvas = CanvasModel(defaults: defaults, calendar: store.calendar)
         tidy = TidyService(config: config)
         navigation = Navigation(store: store, canvas: canvas)
+        pictureText = PictureText(directory: store.directory)
+        account = Account(directory: store.directory, service: cloudService, defaults: defaults)
+        cloud = CloudSync(store: store, account: account, service: cloudService, defaults: defaults)
         coordinator = CaptureCoordinator(
             config: config, engines: engines, settings: settings, store: store, images: images,
             canvas: canvas, permissions: permissions, tidy: tidy)
@@ -51,6 +65,39 @@ public final class AppModel {
         settings.onSampleDaysChange = { [weak self] _ in self?.applySampleDays() }
         staging.onSubmit = { [weak self] items in self?.coordinator.stage(items) }
         staging.onSave = { [weak self] text, items in self?.coordinator.saveDirectly(items, text: text) }
+        search.documents = { [weak self] in self?.searchDocuments() ?? [] }
+        store.onChange = { [weak self] in self?.cloud.storeChanged() }
+        cloud.onPictureChange = { [weak self] id in self?.images.remove(id) }
+        // Nothing is captured until someone is signed in.
+        coordinator.isLocked = !account.isSignedIn
+        account.onChange = { [weak self] in
+            guard let self else { return }
+            self.coordinator.isLocked = !self.account.isSignedIn
+            self.coordinator.sync()
+            if !self.account.isSignedIn { self.showsSettings = false }
+        }
+    }
+
+    // MARK: Search
+
+    /// Every note as search sees it, with what has been read of its picture.
+    public func searchDocuments() -> [SearchDocument] {
+        store.allNotes.map { SearchDocument($0, picture: pictureText.text(for: $0)) }
+    }
+
+    /// Opens the search box, or closes it if it is open.
+    public func toggleSearch() {
+        if search.isOpen { search.close() } else { search.open() }
+    }
+
+    /// Return in the search box: goes to the chosen note and opens it.
+    public func openChosenSearchHit() {
+        guard let id = search.chosen else { return }
+        search.close()
+        showsSettings = false
+        canvas.show(id, in: store)
+        // It went to the note's day, unless the note was on the canvas in front.
+        if !canvas.board.isCanvas { navigation.timelineUsed() }
     }
 
     /// What was in the input box before dictation began: what is said is added after it.
@@ -121,6 +168,11 @@ public final class AppModel {
         permissions.refresh()
         engines.retrySelectedIfFailed()
         coordinator.sync()
+        cloud.tick()
+        // Saved notes only: a made-up note's picture says nothing.
+        let unread = pictureText.remaining
+        pictureText.catchUp(with: store.notes) { store.imageURL(for: $0) }
+        if unread > 0, pictureText.remaining == 0 { search.refresh() }
         if refreshCount % 5 == 0 {
             Task {
                 let availability = await tidy.availability()

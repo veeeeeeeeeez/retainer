@@ -34,7 +34,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     func applicationDidFinishLaunching(_ notification: Notification) {
         quitCleanlyOnTerminationSignals()
 
-        let app = AppModel()
+        // A developer can keep a second set of notes: RETAINER_HOME=<folder>.
+        let home = ProcessInfo.processInfo.environment["RETAINER_HOME"].map { URL(fileURLWithPath: $0, isDirectory: true) }
+        let app = AppModel(storeDirectory: home)
         self.app = app
         // Dark unless light mode is switched on in the settings. Menus and
         // the window follow; the capture overlay keeps its own dark windows.
@@ -65,6 +67,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         refreshTimer = timer
 
         showWindow()
+    }
+
+    /// The browser, at the end of signing in, opens the app with
+    /// `retainer://auth?code=…`.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        guard let url = urls.first(where: Account.isCallback) else { return }
+        showWindow()
+        Task { await app?.account.finishSignIn(with: url) }
     }
 
     private func showWindow() {
@@ -145,6 +155,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         edit.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
         edit.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
         edit.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        edit.addItem(.separator())
+        edit.addItem(target(self, "Search…", #selector(showSearch), "k"))
+        // ⌘F does the same, without a second line in the menu.
+        let find = target(self, "Find…", #selector(showSearch), "f")
+        find.isHidden = true
+        find.allowsKeyEquivalentWhenHidden = true
+        edit.addItem(find)
         main.addItem(submenu(edit, title: "Edit"))
 
         let view = NSMenu(title: "View")
@@ -248,6 +265,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc private func showSettings() {
         showWindow()
         app?.showsSettings = true
+    }
+
+    @objc private func showSearch() {
+        showWindow()
+        app?.toggleSearch()
     }
 
     @objc private func showNextNewNote() {

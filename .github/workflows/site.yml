@@ -10,6 +10,9 @@ on:
       - website/**
       - .github/workflows/site.yml
   workflow_call:
+    secrets:
+      RENDER_DEPLOY_HOOK:
+        required: false
   workflow_dispatch:
 
 jobs:
@@ -44,3 +47,12 @@ jobs:
 
       - id: deployment
         uses: actions/deploy-pages@v5
+
+      # The same site is on Render, which builds it itself on a push but
+      # does not hear of a release. Skipped until the hook's address is
+      # saved as the RENDER_DEPLOY_HOOK secret.
+      - name: Ask Render to build the site again
+        env:
+          HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
+        run: |
+          if [ -n "$HOOK" ]; then curl -fsS -X POST "$HOOK" > /dev/null; fi

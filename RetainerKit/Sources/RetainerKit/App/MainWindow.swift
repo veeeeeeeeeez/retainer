@@ -33,6 +33,7 @@ struct RootView: View {
         .environment(app.images)
         .preferredColorScheme(app.settings.lightMode ? .light : .dark)
         .animation(.easeOut(duration: 0.12), value: app.showsSettings)
+        .animation(.easeOut(duration: 0.12), value: app.search.isOpen)
         .animation(.easeOut(duration: 0.15), value: app.showsChecklist)
         .animation(.easeOut(duration: 0.12), value: app.canvas.viewingNoteID)
         .animation(.easeOut(duration: 0.12), value: app.canvas.expandedNoteID)
@@ -115,6 +116,11 @@ struct RootView: View {
                     withAnimation(.easeOut(duration: 0.12)) { app.canvas.viewingNoteID = nil }
                 }
                 .ignoresSafeArea()
+            }
+
+            if app.search.isOpen {
+                SearchPanel(app: app)
+                    .ignoresSafeArea()
             }
         }
     }
@@ -213,6 +219,15 @@ private struct StatusBar: View {
 
             Spacer(minLength: Theme.Space.l)
 
+            HStack(spacing: 2) {
+                undoButton(
+                    "arrow.uturn.backward", step: app.store.undoName, verb: "Undo", key: "⌘Z"
+                ) { app.store.undoManager.undo() }
+                undoButton(
+                    "arrow.uturn.forward", step: app.store.redoName, verb: "Redo", key: "⇧⌘Z"
+                ) { app.store.undoManager.redo() }
+            }
+
             // This corner speaks only when capture is off and says why.
             // When everything is ready it says nothing; the engine and tidy
             // are in the settings.
@@ -238,6 +253,23 @@ private struct StatusBar: View {
         .overlay(alignment: .top) {
             Rectangle().fill(Theme.hairline).frame(height: Theme.hairlineWidth)
         }
+    }
+
+    /// Undo or redo, faint and inert when there is nothing to take back or
+    /// do again. Its tip names the step: "Undo Delete Card  ⌘Z".
+    private func undoButton(
+        _ symbol: String, step: String?, verb: String, key: String, action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 11, weight: .medium))
+                .frame(width: 20, height: 18)
+        }
+        .buttonStyle(QuietButtonStyle())
+        .disabled(step == nil)
+        .opacity(step == nil ? 0.35 : 1)
+        .help(step.map { "\(verb) \($0)  \(key)" } ?? "Nothing to \(verb.lowercased())")
+        .accessibilityLabel(step.map { "\(verb) \($0)" } ?? verb)
     }
 
     private var isBlocked: Bool {
@@ -387,8 +419,10 @@ struct PermissionsChecklist: View {
 final class MainWindowController: NSObject, NSWindowDelegate {
 
     private let window: NSWindow
+    private let store: NoteStore
 
     init(app: AppModel) {
+        store = app.store
         window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1180, height: 760),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
@@ -406,7 +440,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         window.tabbingMode = .disallowed
         window.delegate = self
 
-        let hosting = NSHostingView(rootView: RootView(app: app))
+        let hosting = NSHostingView(rootView: GateView(app: app))
         hosting.sizingOptions = []
         window.contentView = hosting
 
@@ -415,6 +449,11 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         // when the app was called Terminal, and is kept so the window stays
         // where it was left.
         window.setFrameAutosaveName("TerminalMainWindow")
+    }
+
+    /// Edit › Undo and Redo in this window take back steps on the board.
+    func windowWillReturnUndoManager(_ window: NSWindow) -> UndoManager? {
+        store.undoManager
     }
 
     func show() {

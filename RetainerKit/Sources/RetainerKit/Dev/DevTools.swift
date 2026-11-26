@@ -13,6 +13,10 @@ import SwiftUI
 ///          [--scale 1|2|3|4]           its states (default 3)
 /// Retainer --edges <directory>         render a wide window with the cards
 ///          [--scale 1|2]               out of view each way (default 1)
+/// Retainer --search "<query>"          search the real notes and print what
+///          [--words]                   is found (by words only with --words)
+/// Retainer --read <picture>            print the text read from a picture
+/// Retainer --set-search-key            keep the key given on standard input
 /// Retainer --transcribe <audio file>   run an engine over a recording
 ///          [--engine parakeet-tdt-v2|apple-speechanalyzer] [--realtime]
 /// Retainer --tidy "<text>"             run the tidy pass on some text
@@ -28,6 +32,20 @@ enum DevTools {
         func value(after flag: String) -> String? {
             guard let index = arguments.firstIndex(of: flag), index + 1 < arguments.count else { return nil }
             return arguments[index + 1]
+        }
+
+        if let code = value(after: "--cloud-check") {
+            // Signs in with a code from the website (and the secret its
+            // challenge was made from), then runs cloud mode between two
+            // made-up Macs against the real server, and cleans up after.
+            let application = NSApplication.shared
+            application.setActivationPolicy(.prohibited)
+            let verifier = value(after: "--verifier") ?? ""
+            Task { @MainActor in
+                let passed = await CloudCheck.run(code: code, verifier: verifier)
+                exit(passed ? 0 : 1)
+            }
+            application.run()
         }
 
         if let directory = value(after: "--snapshot") {
@@ -125,6 +143,27 @@ enum DevTools {
             exit(0)
         }
 
+        if let query = value(after: "--search") {
+            let wordsOnly = arguments.contains("--words")
+            Task { @MainActor in exit(await search(query, wordsOnly: wordsOnly)) }
+            RunLoop.main.run()
+            return true
+        }
+        if let path = value(after: "--read") {
+            Task {
+                print(await PictureText.recognize(URL(fileURLWithPath: path)) ?? "could not read \(path)")
+                exit(0)
+            }
+            RunLoop.main.run()
+            return true
+        }
+        if arguments.contains("--set-search-key") {
+            // From standard input, so the key is never an argument or in a file.
+            let key = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            let saved = SearchKey.save(key) && (key.isEmpty || SearchKey.read() != nil)
+            print(saved ? "search key saved to the keychain" : "the search key could not be saved")
+            exit(saved ? 0 : 1)
+        }
         if let path = value(after: "--transcribe") {
             let engine = value(after: "--engine").flatMap(EngineID.init(rawValue:)) ?? .parakeet
             let realtime = arguments.contains("--realtime")
@@ -155,6 +194,40 @@ enum DevTools {
     }
 
     // MARK: Transcription self-test
+
+    /// Searches the real notes as the search box would and prints what is
+    /// found. The notes are only read; pictures not read yet are read first.
+    @MainActor
+    private static func search(_ query: String, wordsOnly: Bool) async -> Int32 {
+        let store = NoteStore()
+        let pictures = PictureText(directory: store.directory)
+        pictures.catchUp(with: store.notes) { store.imageURL(for: $0) }
+        await pictures.waitUntilIdle()
+        let documents = store.notes.map { SearchDocument($0, picture: pictures.text(for: $0)) }
+        var hits = NoteSearch.hits(for: query, in: documents)
+        print("\(documents.count) notes; \(hits.count) by words")
+        if !wordsOnly, let key = SearchKey.read() {
+            let started = Date()
+            do {
+                let found = try await MeaningSearch.find(query, in: documents, key: key)
+                print(String(format: "%d by meaning (%@, %.1f s)", found.count, MeaningSearch.model, Date().timeIntervalSince(started)))
+                let byID = Dictionary(uniqueKeysWithValues: documents.map { ($0.id, $0) })
+                let named = Set(found)
+                hits = found.compactMap { id in
+                    hits.first { $0.id == id } ?? byID[id].map { NoteSearch.hit(for: $0, place: .meaning) }
+                } + hits.filter { !named.contains($0.id) }
+            } catch {
+                print("by meaning failed: \(error)")
+            }
+        } else if !wordsOnly {
+            print("no search key: by words only")
+        }
+        for hit in hits.prefix(12) {
+            let note = store.note(hit.id)
+            print("- [\(hit.place)] \(SourceLabel.timestamp.string(from: note?.timestamp ?? Date()))  \(hit.snippet.prefix(110))")
+        }
+        return 0
+    }
 
     private static func transcribe(path: String, engineID: EngineID, realtime: Bool) async -> Int32 {
         let engine: any TranscriptionEngine
@@ -269,6 +342,9 @@ private enum Snapshots {
         // 1. First launch: nothing saved yet, the permission checklist showing.
         let empty = AppModel(defaults: defaults, storeDirectory: storeDirectory.appendingPathComponent("empty"))
         empty.canvas.setViewSize(boardSize)
+        try render(
+            SignInView(account: empty.account), size: windowSize,
+            to: directory.appendingPathComponent("00-sign-in.png"))
         try render(RootView(app: empty), size: windowSize, to: directory.appendingPathComponent("01-first-launch.png"))
 
         // 2. An empty Today, alone.
@@ -369,6 +445,16 @@ private enum Snapshots {
         // Taken out again, not sent on: sending them on would put the real
         // overlay on the real screen.
         for item in app.staging.items { app.staging.remove(item.id) }
+
+        // Search, opened from the round button beside the switch. By words
+        // only: no key is read and nothing is sent anywhere from a render.
+        app.search.key = { nil }
+        app.search.open()
+        app.search.query = "the method"
+        try render(RootView(app: app), size: windowSize, to: directory.appendingPathComponent("24c-search.png"))
+        app.search.query = "nothing has these words in it"
+        try render(RootView(app: app), size: windowSize, to: directory.appendingPathComponent("24d-search-nothing.png"))
+        app.search.close()
 
         // A note typed into the box: a card of words alone.
         app.coordinator.saveDirectly(

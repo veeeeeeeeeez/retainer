@@ -82,11 +82,13 @@ struct ExpandedCardView: View {
             if let full { image = full }
         }
         .onChange(of: isEditing) { _, editing in
-            if editing { beginEditing() }
+            // However the editing ends, all of it is one step to undo.
+            if editing { beginEditing() } else { store.endTextEdit(id: note.id) }
         }
         .onAppear {
             if isEditing { beginEditing() }
         }
+        .onDisappear { store.endTextEdit(id: note.id) }
         .transition(.opacity)
     }
 
@@ -188,6 +190,7 @@ struct ExpandedCardView: View {
 
     private func beginEditing() {
         draft = note.note
+        store.beginTextEdit(id: note.id)
         Task {
             // The text view exists after the next layout pass.
             for _ in 0..<6 {
@@ -202,6 +205,7 @@ struct ExpandedCardView: View {
     private func endEditing() {
         guard canvas.editingNoteID == note.id else { return }
         store.updateText(id: note.id, text: draft)
+        store.endTextEdit(id: note.id)
         canvas.editingNoteID = nil
     }
 

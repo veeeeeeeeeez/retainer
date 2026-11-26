@@ -12,6 +12,10 @@ struct SettingsPanel: View {
     let app: AppModel
     var onClose: () -> Void
 
+    /// What is typed into the key's field. The key itself is never shown.
+    @State private var typedKey = ""
+    @State private var hasKey = SearchKey.read() != nil
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
@@ -26,6 +30,22 @@ struct SettingsPanel: View {
             }
             .padding(.horizontal, Theme.Space.l)
             .frame(height: 36)
+
+            rule
+
+            row("Account", detail: app.account.email ?? "Not signed in.") {
+                if app.account.isSignedIn {
+                    Button("sign out") { app.account.signOut() }
+                        .buttonStyle(QuietButtonStyle())
+                }
+            }
+
+            rule
+
+            switchRow(
+                "Cloud mode",
+                detail: cloudDetail,
+                isOn: Binding(get: { app.cloud.isOn }, set: { app.cloud.isOn = $0 }))
 
             rule
 
@@ -60,6 +80,34 @@ struct SettingsPanel: View {
 
             rule
 
+            row(
+                "Search by meaning",
+                detail: hasKey
+                    ? "On. When you search, your notes' words and the text in their pictures go to Anthropic."
+                    : "Paste an Anthropic key to search by meaning as well as by words. Until then nothing leaves this Mac."
+            ) {
+                if hasKey {
+                    Button("remove key") {
+                        SearchKey.save("")
+                        hasKey = false
+                    }
+                    .buttonStyle(QuietButtonStyle())
+                } else {
+                    SecureField("sk-ant-…", text: $typedKey)
+                        .textFieldStyle(.plain)
+                        .font(Theme.mono(11))
+                        .padding(.horizontal, 8)
+                        .frame(width: 130, height: 24)
+                        .background(Theme.panelRaised, in: RoundedRectangle(cornerRadius: Theme.radiusSmall))
+                        .onSubmit {
+                            if SearchKey.save(typedKey) { hasKey = SearchKey.read() != nil }
+                            typedKey = ""
+                        }
+                }
+            }
+
+            rule
+
             VStack(alignment: .leading, spacing: Theme.Space.s) {
                 Text("Speech engine")
                     .font(Theme.mono(12, weight: .medium))
@@ -88,6 +136,19 @@ struct SettingsPanel: View {
 
     private var escapeCloses: Bool {
         app.canvas.expandedNoteID == nil && app.canvas.viewingNoteID == nil
+    }
+
+    private var cloudDetail: String {
+        switch app.cloud.status {
+        case .off: "Off. Your notes and their pictures stay on this Mac."
+        case .idle:
+            app.cloud.lastSynced == nil
+                ? "On. Your notes and their pictures are kept in your account too."
+                : "Up to date. Your notes and their pictures are in your account too."
+        case .syncing: "Syncing…"
+        case .sending(let done, let total): "Sending pictures: \(done) of \(total)."
+        case .failed(let why): "Not synced (\(why)). Trying again shortly."
+        }
     }
 
     private var tidyDetail: String {

@@ -839,6 +839,22 @@ public final class CanvasModel {
         return next
     }
 
+    /// Goes to a note wherever it is and opens its card: on the canvas in
+    /// front if it is there, otherwise on its own day's board (or that
+    /// day's archive), scrolled to the middle of the window.
+    public func show(_ id: UUID, in store: NoteStore) {
+        guard let note = store.note(id) else { return }
+        if case .canvas(let canvasID) = board, !note.isArchived, store.isPlaced(id, on: canvasID) {
+            // Stay: it is on the board being looked at.
+        } else {
+            show(Period.containing(note.timestamp, scale: .day, calendar: calendar))
+            showingArchive = note.isArchived
+        }
+        // Where it is drawn there: a card in a group sits where the group is.
+        if let placed = notes(in: store).first(where: { $0.id == id }) { centre(on: frame(of: placed)) }
+        expand(id, in: store)
+    }
+
     // MARK: Persistence
 
     private func persist() {

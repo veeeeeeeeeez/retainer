@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Sign in to Retainer</title>
+<link rel="stylesheet" href="../site.css">
+</head>
+<body>
+<main>
+  <!-- Reached from the app: it brings a challenge only it can answer. -->
+  <section id="ask" hidden>
+    <h1>Sign in to Retainer</h1>
+    <p class="lead">Then you’ll go straight back to the app.</p>
+    <div class="stack">
+      <button id="google" type="button">
+        <svg width="16" height="16" viewBox="0 0 18 18" aria-hidden="true"><path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.62z"/><path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.8.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.03-3.7H.96v2.33A9 9 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.97 10.72a5.4 5.4 0 0 1 0-3.44V4.95H.96a9 9 0 0 0 0 8.1l3.01-2.33z"/><path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.59C13.46.9 11.43 0 9 0A9 9 0 0 0 .96 4.95l3.01 2.33C4.68 5.16 6.66 3.58 9 3.58z"/></svg>
+        Continue with Google
+      </button>
+    </div>
+    <div class="or">or</div>
+    <form id="email">
+      <input id="address" type="email" name="email" placeholder="you@example.com" autocomplete="email" required>
+      <button class="primary" type="submit">Email me a link</button>
+    </form>
+    <p id="note" class="note" role="status"></p>
+  </section>
+
+  <section id="sent" hidden>
+    <h1>Check your email</h1>
+    <p class="lead">A sign-in link is on its way to <span id="where"></span>. Open it on this Mac.</p>
+    <p><a id="again" href="#">Use another address</a></p>
+  </section>
+
+  <!-- Opened by hand: there is nothing to sign in to but the app. -->
+  <section id="bare" hidden>
+    <h1>Sign in from the app</h1>
+    <p class="lead">Open Retainer and choose Sign in. It brings you back here.</p>
+    <a class="button" href="../">Download Retainer</a>
+  </section>
+</main>
+<script src="../config.js"></script>
+<script>
+  const { supabaseURL, supabaseKey } = window.RETAINER;
+  const show = (id) => {
+    for (const section of document.querySelectorAll("section")) section.hidden = section.id !== id;
+  };
+  const note = (text, error) => {
+    const line = document.getElementById("note");
+    line.textContent = text;
+    line.classList.toggle("error", Boolean(error));
+  };
+
+  // The app made a secret and sent its hash. Whoever finishes signing in
+  // gets a code that is worth nothing without the secret, so only the app
+  // that started this can use it.
+  const challenge = new URLSearchParams(location.search).get("challenge") || "";
+  const done = new URL("done/", location.href.split(/[?#]/)[0]).href;
+
+  if (!/^[A-Za-z0-9_-]{43,128}$/.test(challenge)) {
+    show("bare");
+  } else {
+    show("ask");
+
+    document.getElementById("google").addEventListener("click", () => {
+      const to = new URL(supabaseURL + "/auth/v1/authorize");
+      to.searchParams.set("provider", "google");
+      to.searchParams.set("redirect_to", done);
+      to.searchParams.set("code_challenge", challenge);
+      to.searchParams.set("code_challenge_method", "s256");
+      location.href = to.href;
+    });
+
+    document.getElementById("email").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const address = document.getElementById("address").value.trim();
+      const button = event.target.querySelector("button");
+      button.disabled = true;
+      note("Sending…");
+      try {
+        const response = await fetch(supabaseURL + "/auth/v1/otp?redirect_to=" + encodeURIComponent(done), {
+          method: "POST",
+          headers: { "Content-Type": "application/json", apikey: supabaseKey },
+          body: JSON.stringify({
+            email: address,
+            create_user: true,
+            code_challenge: challenge,
+            code_challenge_method: "s256",
+          }),
+        });
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}));
+          throw new Error(body.msg || body.error_description || body.message || "That didn’t send.");
+        }
+        document.getElementById("where").textContent = address;
+        note("");
+        show("sent");
+      } catch (error) {
+        note(error.message === "Failed to fetch" ? "Couldn’t reach the server. Try again." : error.message, true);
+      } finally {
+        button.disabled = false;
+      }
+    });
+
+    document.getElementById("again").addEventListener("click", (event) => {
+      event.preventDefault();
+      show("ask");
+      document.getElementById("address").focus();
+    });
+  }
+</script>
+</body>
+</html>
