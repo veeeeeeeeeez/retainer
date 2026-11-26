@@ -24,7 +24,7 @@ public struct CloudConfig: Sendable, Equatable {
     public static let standard = CloudConfig(
         server: URL(string: "https://hzcmlliwxauqzhkpxzfw.supabase.co")!,
         key: "sb_publishable_3gd1VzZxn53M9I5WjyFJhw_XpIVAsdO",
-        site: URL(string: "__SITE_URL__")!)
+        site: URL(string: "https://retainer.onrender.com/")!)
 
     /// The address the app is opened with when sign-in is over.
     public static let callbackScheme = "retainer"
