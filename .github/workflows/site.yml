@@ -41,18 +41,19 @@ jobs:
           gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$RUNNER_TEMP/releases.json"
           python3 website/build.py --releases "$RUNNER_TEMP/releases.json" --out _site
 
+      # The same site is on Render, which builds it itself on a push but
+      # does not hear of a release. Asked before the Pages deployment, so
+      # that trouble there does not hold it up. Skipped until the hook's
+      # address is saved as the RENDER_DEPLOY_HOOK secret.
+      - name: Ask Render to build the site again
+        env:
+          HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
+        run: |
+          if [ -n "$HOOK" ]; then curl -fsS -X POST "$HOOK" > /dev/null; fi
+
       - uses: actions/upload-pages-artifact@v5
         with:
           path: _site
 
       - id: deployment
         uses: actions/deploy-pages@v5
-
-      # The same site is on Render, which builds it itself on a push but
-      # does not hear of a release. Skipped until the hook's address is
-      # saved as the RENDER_DEPLOY_HOOK secret.
-      - name: Ask Render to build the site again
-        env:
-          HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
-        run: |
-          if [ -n "$HOOK" ]; then curl -fsS -X POST "$HOOK" > /dev/null; fi
