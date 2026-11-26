@@ -328,6 +328,9 @@ private enum Snapshots {
         // 1. First launch: nothing saved yet, the permission checklist showing.
         let empty = AppModel(defaults: defaults, storeDirectory: storeDirectory.appendingPathComponent("empty"))
         empty.canvas.setViewSize(boardSize)
+        try render(
+            SignInView(account: empty.account), size: windowSize,
+            to: directory.appendingPathComponent("00-sign-in.png"))
         try render(RootView(app: empty), size: windowSize, to: directory.appendingPathComponent("01-first-launch.png"))
 
         // 2. An empty Today, alone.

@@ -440,7 +440,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         window.tabbingMode = .disallowed
         window.delegate = self
 
-        let hosting = NSHostingView(rootView: RootView(app: app))
+        let hosting = NSHostingView(rootView: GateView(app: app))
         hosting.sizingOptions = []
         window.contentView = hosting
 

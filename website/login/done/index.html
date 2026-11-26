@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<meta name="referrer" content="no-referrer">
+<title>Signed in to Retainer</title>
+<link rel="stylesheet" href="../../site.css">
+</head>
+<body>
+<main>
+  <section id="ok" hidden>
+    <h1>You’re signed in</h1>
+    <p class="lead">Retainer should open by itself. You can close this tab.</p>
+    <a id="open" class="button primary" href="#">Open Retainer</a>
+  </section>
+  <section id="failed" hidden>
+    <h1>That didn’t work</h1>
+    <p id="why" class="lead"></p>
+    <p>Go back to Retainer and choose Sign in again.</p>
+  </section>
+</main>
+<script>
+  // Sign-in ends here with a one-time code. It goes to the app, which holds
+  // the secret that turns it into a session; this page never has one.
+  const query = new URLSearchParams(location.search);
+  const fragment = new URLSearchParams(location.hash.slice(1));
+  const code = query.get("code");
+  if (code) {
+    const app = "retainer://auth?code=" + encodeURIComponent(code);
+    document.getElementById("open").href = app;
+    document.getElementById("ok").hidden = false;
+    // The code has been read: take it out of the address bar and history.
+    history.replaceState(null, "", location.pathname);
+    location.href = app;
+  } else {
+    const why = query.get("error_description") || fragment.get("error_description");
+    document.getElementById("why").textContent = why
+      ? why.replace(/\+/g, " ")
+      : "This link has been used already, or has expired.";
+    document.getElementById("failed").hidden = false;
+  }
+</script>
+</body>
+</html>

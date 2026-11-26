@@ -1,0 +1,57 @@
+/* Shared by the sign-in pages. The downloads page carries its own styles. */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #ffffff;
+  color: #333333;
+  font-family: -apple-system, "SF Pro Text", "Roboto", "Helvetica Neue", sans-serif;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px 96px;
+}
+main { width: 100%; max-width: 320px; text-align: center; }
+h1 { font-size: 22px; font-weight: 400; color: #222222; margin-bottom: 8px; }
+p { font-size: 14px; line-height: 1.6; color: #999999; }
+p.lead { margin-bottom: 32px; }
+form, .stack { display: flex; flex-direction: column; gap: 10px; }
+button, input, a.button {
+  font: inherit;
+  font-size: 14px;
+  height: 42px;
+  border-radius: 8px;
+  border: 1px solid #dddddd;
+  width: 100%;
+}
+input { padding: 0 14px; color: #222222; background: #ffffff; outline: none; }
+input::placeholder { color: #aaaaaa; }
+input:focus { border-color: #999999; }
+button, a.button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: #ffffff;
+  color: #222222;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 0.12s ease;
+}
+button:hover, a.button:hover { background: #f7f7f7; }
+button.primary, a.button.primary { background: #222222; border-color: #222222; color: #ffffff; }
+button.primary:hover, a.button.primary:hover { background: #000000; }
+button:disabled { opacity: 0.5; cursor: default; }
+.or {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 18px 0;
+  color: #bbbbbb;
+  font-size: 12px;
+}
+.or::before, .or::after { content: ""; flex: 1; height: 1px; background: #e8e8e8; }
+.note { margin-top: 18px; font-size: 13px; min-height: 21px; }
+.note.error { color: #b3261e; }
+a { color: #555555; }
+a:hover { color: #222222; }
+[hidden] { display: none !important; }

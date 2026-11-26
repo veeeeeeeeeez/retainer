@@ -65,6 +65,9 @@ public final class NoteStore {
     /// Pictures of notes that are gone but could come back with an undo.
     /// They go to the Trash when the app quits, if they are still gone.
     @ObservationIgnored private var unusedImagePaths: Set<String> = []
+    /// Called whenever something that is saved has changed, so the cloud
+    /// copy can follow.
+    @ObservationIgnored public var onChange: (() -> Void)?
     private static let log = Logger(subsystem: "blog.terminal.app", category: "store")
 
     public nonisolated static var defaultDirectory: URL {
@@ -723,6 +726,7 @@ public final class NoteStore {
     // MARK: Persistence
 
     private func scheduleSave() {
+        onChange?()
         pendingSave?.cancel()
         let work = DispatchWorkItem { [weak self] in
             MainActor.assumeIsolated { self?.saveNow() }
@@ -768,31 +772,85 @@ public final class NoteStore {
         }
     }
 
+    /// What is saved, as it is written: without what belongs to made-up
+    /// notes. A made-up note's place on a canvas would point at nothing the
+    /// next time the file is read, and a group left with fewer than two
+    /// saved notes is not a group on disk.
+    public var saved: SavedContent {
+        let ids = Set(notes.map(\.id))
+        let written = canvases.map { canvas in
+            var canvas = canvas
+            canvas.cards.removeAll { !ids.contains($0.noteID) }
+            return canvas
+        }
+        let kept = groups.compactMap { group -> NoteGroup? in
+            var group = group
+            group.noteIDs.removeAll { !ids.contains($0) }
+            return group.noteIDs.count >= 2 ? group : nil
+        }
+        return SavedContent(notes: notes, projects: projects, canvases: written, groups: kept)
+    }
+
     private func encodedIndex() -> Data? {
         do {
-            // Only what is saved is written: a made-up note's place on a
-            // canvas would point at nothing the next time the file is read.
-            let saved = Set(notes.map(\.id))
-            let written = canvases.map { canvas in
-                var canvas = canvas
-                canvas.cards.removeAll { !saved.contains($0.noteID) }
-                return canvas
-            }
-            // The same for groups: one left with fewer than two saved notes
-            // is not a group on disk.
-            let kept = groups.compactMap { group -> NoteGroup? in
-                var group = group
-                group.noteIDs.removeAll { !saved.contains($0) }
-                return group.noteIDs.count >= 2 ? group : nil
-            }
+            let saved = self.saved
             return try Self.encoder.encode(
                 NoteIndex(
-                    version: NoteIndex.currentVersion, notes: notes, projects: projects, canvases: written,
-                    groups: kept))
+                    version: NoteIndex.currentVersion, notes: saved.notes, projects: saved.projects,
+                    canvases: saved.canvases, groups: saved.groups))
         } catch {
             Self.log.error("index encode failed: \(error.localizedDescription, privacy: .public)")
             return nil
         }
+    }
+
+    // MARK: Changes from the cloud
+
+    /// Takes in what another Mac did: things made or changed there replace
+    /// what is here, and things deleted there go from here.
+    ///
+    /// Nothing else is touched. A canvas that held a deleted note arrives
+    /// changed in its own right, from the Mac that deleted it. It is not a
+    /// step to undo, but it does not empty the undo list either: undoing an
+    /// earlier step puts back what was here before, as it always does.
+    public func apply(_ changes: RemoteChanges) {
+        guard !changes.isEmpty else { return }
+        if textEdit.map({ edit in changes.deletedNotes.contains(edit.id) || changes.notes.contains { $0.id == edit.id } })
+            == true
+        {
+            // The note being typed into was changed elsewhere: the typing
+            // so far is no longer one clean step back.
+            textEdit = nil
+        }
+
+        func merge<T: Identifiable>(_ list: inout [T], _ incoming: [T], removing gone: Set<UUID>) where T.ID == UUID {
+            for item in incoming {
+                if let index = list.firstIndex(where: { $0.id == item.id }) {
+                    list[index] = item
+                } else {
+                    list.append(item)
+                }
+            }
+            if !gone.isEmpty { list.removeAll { gone.contains($0.id) } }
+        }
+
+        // The pictures of notes deleted elsewhere wait for the Trash like
+        // those deleted here, in case an undo brings a note back.
+        unusedImagePaths.formUnion(notes.filter { changes.deletedNotes.contains($0.id) }.map(\.imagePath))
+        let hadNotes = notes.count
+        merge(&notes, changes.notes, removing: changes.deletedNotes)
+        merge(&projects, changes.projects, removing: changes.deletedProjects)
+        merge(&canvases, changes.canvases, removing: changes.deletedCanvases)
+        merge(&groups, changes.groups, removing: changes.deletedGroups)
+        unusedImagePaths.subtract(notes.map(\.imagePath))
+        // Each list is in the order its things were made, wherever they were made.
+        if notes.count != hadNotes || !changes.notes.isEmpty {
+            notes.sort { $0.timestamp < $1.timestamp }
+        }
+        projects.sort { $0.createdAt < $1.createdAt }
+        canvases.sort { $0.createdAt < $1.createdAt }
+        groups.sort { $0.createdAt < $1.createdAt }
+        scheduleSave()
     }
 
     static let encoder: JSONEncoder = {
@@ -807,6 +865,30 @@ public final class NoteStore {
         decoder.dateDecodingStrategy = .iso8601
         return decoder
     }()
+}
+
+/// Everything of the store that is saved.
+public struct SavedContent: Sendable, Equatable {
+    public var notes: [Note]
+    public var projects: [Project]
+    public var canvases: [ProjectCanvas]
+    public var groups: [NoteGroup]
+}
+
+/// What another Mac made, changed and deleted, as it arrives from the cloud.
+public struct RemoteChanges: Sendable, Equatable {
+    public var notes: [Note] = []
+    public var projects: [Project] = []
+    public var canvases: [ProjectCanvas] = []
+    public var groups: [NoteGroup] = []
+    public var deletedNotes: Set<UUID> = []
+    public var deletedProjects: Set<UUID> = []
+    public var deletedCanvases: Set<UUID> = []
+    public var deletedGroups: Set<UUID> = []
+
+    public init() {}
+
+    public var isEmpty: Bool { self == RemoteChanges() }
 }
 
 /// Serialises index writes so a slow disk never blocks the main thread and

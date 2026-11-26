@@ -30,6 +30,9 @@ public final class CaptureCoordinator {
     /// Whether an Option-drag will currently start a capture.
     public private(set) var availability: Availability = .blocked("starting up")
 
+    /// Set while nobody is signed in: capture is off until someone is.
+    @ObservationIgnored public var isLocked = false
+
     /// True while a capture is on screen in any phase.
     public var isCapturing: Bool { session != nil }
 
@@ -189,6 +192,7 @@ public final class CaptureCoordinator {
     }
 
     private func computeAvailability() -> Availability {
+        if isLocked { return .blocked("sign in first") }
         let missing = environment.missingPermissions()
         if !missing.isEmpty {
             let names = missing.map { $0.title.lowercased() }.joined(separator: ", ")

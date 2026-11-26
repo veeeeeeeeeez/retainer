@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Renders the downloads page: index.html with a row for every release.
+"""Renders the site: index.html with a row for every release, and the
+sign-in pages beside it, copied as they are.
 
     python3 website/build.py --out DIR [--releases FILE] [--local DIR]
 
@@ -14,6 +15,7 @@ import argparse
 import html
 import json
 import re
+import shutil
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -21,6 +23,8 @@ from urllib.parse import quote
 
 TEMPLATE = Path(__file__).resolve().parent / "index.html"
 MARKER = "<!-- releases -->"
+# What is in this folder but is not part of the site.
+NOT_PAGES = {"build.py", "index.html", ".gitignore", "_site", "downloads"}
 PACKAGE = re.compile(r"^Retainer-(?P<version>.+)-(?P<build>[^-]+)\.(?P<kind>dmg|zip)$")
 
 
@@ -85,6 +89,19 @@ def render(rows):
     return "\n".join(lines)
 
 
+def copy_pages(out):
+    """Copies everything else in this folder (the sign-in pages) into `out`."""
+    source = TEMPLATE.parent
+    for item in sorted(source.iterdir()):
+        if item.name in NOT_PAGES or item.name.startswith(".") or item.resolve() == out.resolve():
+            continue
+        target = out / item.name
+        if item.is_dir():
+            shutil.copytree(item, target, dirs_exist_ok=True)
+        else:
+            shutil.copy2(item, target)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Renders the downloads page.")
     parser.add_argument("--out", required=True, type=Path)
@@ -104,6 +121,7 @@ def main():
 
     arguments.out.mkdir(parents=True, exist_ok=True)
     (arguments.out / "index.html").write_text(template.replace(MARKER, render(rows)), encoding="utf-8")
+    copy_pages(arguments.out)
 
     if arguments.local and arguments.local.is_dir():
         link = arguments.out / "downloads"

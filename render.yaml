@@ -1,0 +1,21 @@
+# The website on Render, as a static site: the downloads page and the sign-in
+# pages. Render builds it on every push to main; the release workflow asks
+# for a build after each release, so that the new release is listed.
+services:
+  - type: web
+    name: retainer
+    runtime: static
+    branch: main
+    buildCommand: ./scripts/render-build.sh
+    staticPublishPath: website/_site
+    headers:
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /*
+        name: Referrer-Policy
+        value: no-referrer
+      # The sign-in pages are never to be kept by anything in between.
+      - path: /login/*
+        name: Cache-Control
+        value: no-store

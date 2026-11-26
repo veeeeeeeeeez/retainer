@@ -25,6 +25,10 @@ public final class AppModel {
     public let pictureText: PictureText
     /// The search box.
     public let search = SearchModel()
+    /// Who is signed in.
+    public let account: Account
+    /// Cloud mode: the notes kept the same here and in the account's cloud copy.
+    public let cloud: CloudSync
 
     /// Whether the on-device language model can be used for tidying.
     public private(set) var tidyAvailability: TidyAvailability = .unavailable("checking")
@@ -38,7 +42,10 @@ public final class AppModel {
 
     @ObservationIgnored private var refreshCount = 0
 
-    public init(config: CaptureConfig = .standard, defaults: UserDefaults = .standard, storeDirectory: URL? = nil) {
+    public init(
+        config: CaptureConfig = .standard, defaults: UserDefaults = .standard, storeDirectory: URL? = nil,
+        cloudService: any CloudService = SupabaseService()
+    ) {
         self.config = config
         settings = AppSettings(defaults: defaults)
         permissions = PermissionsModel()
@@ -49,6 +56,8 @@ public final class AppModel {
         tidy = TidyService(config: config)
         navigation = Navigation(store: store, canvas: canvas)
         pictureText = PictureText(directory: store.directory)
+        account = Account(directory: store.directory, service: cloudService, defaults: defaults)
+        cloud = CloudSync(store: store, account: account, service: cloudService, defaults: defaults)
         coordinator = CaptureCoordinator(
             config: config, engines: engines, settings: settings, store: store, images: images,
             canvas: canvas, permissions: permissions, tidy: tidy)
@@ -57,6 +66,16 @@ public final class AppModel {
         staging.onSubmit = { [weak self] items in self?.coordinator.stage(items) }
         staging.onSave = { [weak self] text, items in self?.coordinator.saveDirectly(items, text: text) }
         search.documents = { [weak self] in self?.searchDocuments() ?? [] }
+        store.onChange = { [weak self] in self?.cloud.storeChanged() }
+        cloud.onPictureChange = { [weak self] id in self?.images.remove(id) }
+        // Nothing is captured until someone is signed in.
+        coordinator.isLocked = !account.isSignedIn
+        account.onChange = { [weak self] in
+            guard let self else { return }
+            self.coordinator.isLocked = !self.account.isSignedIn
+            self.coordinator.sync()
+            if !self.account.isSignedIn { self.showsSettings = false }
+        }
     }
 
     // MARK: Search
@@ -149,6 +168,7 @@ public final class AppModel {
         permissions.refresh()
         engines.retrySelectedIfFailed()
         coordinator.sync()
+        cloud.tick()
         // Saved notes only: a made-up note's picture says nothing.
         let unread = pictureText.remaining
         pictureText.catchUp(with: store.notes) { store.imageURL(for: $0) }

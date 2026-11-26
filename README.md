@@ -25,11 +25,42 @@ were left. Everything else is Retainer.
 in the screenshots (read on this Mac). With an Anthropic key in the settings
 it also finds notes by what they mean ("the painting of mountains").
 
-Everything runs on this Mac. The app goes to the network for two things only:
-the one-time download of a speech model, and the page of a link you paste, to
-take a picture of it for the card. Search by meaning is a third, and only if
-you give it a key: then the words of your notes and of their pictures go to
-Anthropic each time you search. Without a key nothing does.
+The first time it opens, the app asks you to sign in: one button, which
+opens the website's sign-in page in the browser (Google, or a link sent to
+your email) and comes straight back.
+
+Your notes stay on this Mac unless you turn on **Cloud mode** in the
+settings. With it on, every note, its picture, your projects, canvases and
+groups are kept in your account as well, and are the same on every Mac you
+sign in on. See [Sign-in and cloud mode](#sign-in-and-cloud-mode).
+
+Otherwise the app goes to the network for two things only: the one-time
+download of a speech model, and the page of a link you paste, to take a
+picture of it for the card. Search by meaning is a third, and only if you
+give it a key: then the words of your notes and of their pictures go to
+Anthropic each time you search.
+
+## Sign-in and cloud mode
+
+Both run on one Supabase project. Its address and publishable key are in
+`RetainerKit/Sources/RetainerKit/Cloud/CloudConfig.swift` and
+`website/config.js`; neither is a secret.
+
+- **Signing in.** The app makes up a secret and opens
+  `<website>/login/?challenge=<its hash>`. The page signs you in with Google
+  or an emailed link and ends on `<website>/login/done/`, which opens
+  `retainer://auth?code=…`. The app turns the code and its secret into a
+  session (PKCE): a code caught by anything else is worth nothing. The
+  session is kept in `account.json` beside the notes, readable only by you.
+- **Cloud mode.** `supabase/schema.sql` is the whole server: a `records`
+  table (each note, project, canvas and group as JSON) and a private
+  `images` bucket, both closed by row-level security to everyone but their
+  owner. The app sends what changed here two seconds after it changes and
+  asks for what changed elsewhere every half minute. Changed on two Macs
+  between syncs, the later change to a record wins, whole.
+- **The website** is a static site: `scripts/render-build.sh` builds it for
+  Render (`render.yaml`), and `./scripts/site.sh` serves it on
+  `localhost:3000`.
 
 ## Read this first
 
